@@ -1,3 +1,4 @@
+import logo from "../assets/logo_main.png";
 import CourseCard from "../components/CourseCard";
 import DDLPanel from "../components/DDLPanel";
 
@@ -18,11 +19,46 @@ function HomePage() {
           marginBottom: "30px",
         }}
       >
-        <div>
-          <h1>鲸记 NoteWhale</h1>
-          <p>你的大学课程知识整理平台</p>
+        {/* Logo + 标题 */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+          }}
+        >
+          <img
+            src={logo}
+            alt="鲸记 Logo"
+            style={{
+              width: "70px",
+              height: "70px",
+              objectFit: "contain",
+            }}
+          />
+
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: "36px",
+              }}
+            >
+              鲸记 NoteWhale
+            </h1>
+
+            <p
+              style={{
+                marginTop: "6px",
+                color: "#666",
+              }}
+            >
+              你的大学课程知识整理平台
+            </p>
+          </div>
         </div>
 
+        {/* 新建课程按钮 */}
         <button
           style={{
             height: "50px",
