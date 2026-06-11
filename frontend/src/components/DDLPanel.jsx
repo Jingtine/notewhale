@@ -128,7 +128,7 @@ function DDLPanel({
               fontFamily: "inherit",
             }}
           >
-            ＋ 新建
+            ＋ 新建日程
           </button>
         </div>
       </div>

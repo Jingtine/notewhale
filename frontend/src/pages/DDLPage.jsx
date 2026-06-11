@@ -9,8 +9,14 @@ function DDLPage() {
     JSON.parse(localStorage.getItem("ddls") || "[]")
   );
 
-  const folders = JSON.parse(localStorage.getItem("folders") || "[]");
-  const courses = folders.flatMap((folder) => folder.courses || []);
+  const folders = JSON.parse(
+    localStorage.getItem("courseFolders") ||
+      localStorage.getItem("folders") ||
+      "[]"
+  );
+  const courses = folders.flatMap(
+    (folder) => folder.courses || folder.items || []
+  );
   const darkMode = JSON.parse(localStorage.getItem("darkMode") || "false");
 
   const [tab, setTab] = useState("全部");
@@ -20,11 +26,16 @@ function DDLPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editCourseId, setEditCourseId] = useState("");
+  const [editPlatform, setEditPlatform] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState("");
   const [newCourseId, setNewCourseId] = useState("");
+  const [newPlatform, setNewPlatform] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const [newPreview, setNewPreview] = useState("");
 
   function saveDdls(nextDdls) {
     setDdls(nextDdls);
@@ -128,17 +139,47 @@ function DDLPage() {
       id: Date.now(),
       title: newTitle.trim(),
       date: newDate.replace("T", " "),
+      platform: newPlatform.trim(),
+      note: newNote.trim(),
       courseId: selectedCourse ? selectedCourse.id : null,
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       completed: false,
+      source: newPreview ? "图片识别" : "手动新建",
     };
 
     saveDdls([...ddls, nextDDL]);
+    resetAddDDLModal();
+  }
 
+  function uploadAddDDLImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setNewPreview(URL.createObjectURL(file));
+
+    if (!newTitle.trim()) setNewTitle("法理学论文");
+    if (!newDate.trim()) setNewDate("2026-06-12T23:59");
+    if (!newPlatform.trim()) setNewPlatform("在线提交");
+    if (!newNote.trim()) setNewNote("不少于3000字，参考格式见附件。");
+
+    const matchedCourse = courses.find((course) =>
+      String(course.title || "").includes("法理学")
+    );
+    if (matchedCourse && !newCourseId) {
+      setNewCourseId(String(matchedCourse.id));
+    }
+
+    event.target.value = "";
+  }
+
+  function resetAddDDLModal() {
+    setShowAddModal(false);
     setNewTitle("");
     setNewDate("");
     setNewCourseId("");
-    setShowAddModal(false);
+    setNewPlatform("");
+    setNewNote("");
+    setNewPreview("");
   }
 
   function openEditDDL(ddl) {
@@ -146,6 +187,8 @@ function DDLPage() {
     setEditTitle(ddl.title || "");
     setEditDate((ddl.date || "").replace(" ", "T"));
     setEditCourseId(ddl.courseId || "");
+    setEditPlatform(ddl.platform || "");
+    setEditNote(ddl.note || "");
     setShowEditModal(true);
   }
 
@@ -164,6 +207,8 @@ function DDLPage() {
             date: editDate.replace("T", " "),
             courseId: selectedCourse ? selectedCourse.id : null,
             courseName: selectedCourse ? selectedCourse.title : "未归属课程",
+            platform: editPlatform.trim(),
+            note: editNote.trim(),
           }
         : ddl
     );
@@ -175,6 +220,8 @@ function DDLPage() {
     setEditTitle("");
     setEditDate("");
     setEditCourseId("");
+    setEditPlatform("");
+    setEditNote("");
   }
 
   return (
@@ -269,7 +316,7 @@ function DDLPage() {
               marginTop: "42px",
             }}
           >
-            ＋ 新建DDL
+            ＋ 新建日程
           </button>
         </div>
 
@@ -404,6 +451,21 @@ function DDLPage() {
                         {status.text}
                       </div>
 
+                      {(ddl.platform || ddl.note || ddl.source) && (
+                        <div
+                          style={{
+                            marginTop: "6px",
+                            color: colors.muted,
+                            fontSize: "12px",
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          {ddl.source ? `${ddl.source} · ` : ""}
+                          {ddl.platform ? `${ddl.platform} · ` : ""}
+                          {ddl.note}
+                        </div>
+                      )}
+
                       <div
                         style={{
                           display: "flex",
@@ -447,42 +509,53 @@ function DDLPage() {
 
         {showAddModal && (
           <DDLModal
-            title="新建 DDL"
+            title="新建日程"
             darkMode={darkMode}
             colors={colors}
             ddlTitle={newTitle}
             setDDLTitle={setNewTitle}
             ddlDate={newDate}
             setDDLDate={setNewDate}
+            platform={newPlatform}
+            setPlatform={setNewPlatform}
+            note={newNote}
+            setNote={setNewNote}
             courseId={newCourseId}
             setCourseId={setNewCourseId}
             courses={courses}
-            onCancel={() => {
-              setShowAddModal(false);
-              setNewTitle("");
-              setNewDate("");
-              setNewCourseId("");
-            }}
+            preview={newPreview}
+            onUploadImage={uploadAddDDLImage}
+            onCancel={resetAddDDLModal}
             onConfirm={addDDL}
-            confirmText="创建"
+            confirmText="保存日程"
+            showImageUpload
           />
         )}
 
         {showEditModal && (
           <DDLModal
-            title="编辑 DDL"
+            title="编辑日程"
             darkMode={darkMode}
             colors={colors}
             ddlTitle={editTitle}
             setDDLTitle={setEditTitle}
             ddlDate={editDate}
             setDDLDate={setEditDate}
+            platform={editPlatform}
+            setPlatform={setEditPlatform}
+            note={editNote}
+            setNote={setEditNote}
             courseId={editCourseId}
             setCourseId={setEditCourseId}
             courses={courses}
             onCancel={() => {
               setShowEditModal(false);
               setEditingDDL(null);
+              setEditTitle("");
+              setEditDate("");
+              setEditCourseId("");
+              setEditPlatform("");
+              setEditNote("");
             }}
             onConfirm={confirmEditDDL}
             confirmText="保存修改"
@@ -507,9 +580,16 @@ function DDLModal({
   setDDLTitle,
   ddlDate,
   setDDLDate,
+  platform = "",
+  setPlatform = () => {},
+  note = "",
+  setNote = () => {},
   courseId,
   setCourseId,
   courses,
+  preview = "",
+  onUploadImage,
+  showImageUpload = false,
   onCancel,
   onConfirm,
   confirmText,
@@ -528,11 +608,12 @@ function DDLModal({
     >
       <div
         style={{
-          width: "420px",
+          width: showImageUpload ? "900px" : "520px",
+          maxWidth: "calc(100vw - 40px)",
           background: darkMode ? "#1E293B" : "#FFFFFF",
           border: `1px solid ${colors.border}`,
-          borderRadius: "20px",
-          padding: "28px",
+          borderRadius: "22px",
+          padding: "32px 36px",
           boxShadow: darkMode
             ? "0 28px 60px rgba(0,0,0,0.45)"
             : "0 24px 48px rgba(15,42,74,0.16)",
@@ -540,87 +621,214 @@ function DDLModal({
       >
         <h2
           style={{
-            margin: 0,
-            marginBottom: "22px",
+            margin: "0 0 26px",
             color: colors.title,
-            fontSize: "24px",
+            fontSize: "28px",
+            fontWeight: 800,
           }}
         >
           {title}
         </h2>
 
-        <input
-          value={ddlTitle}
-          onChange={(e) => setDDLTitle(e.target.value)}
-          placeholder="DDL 标题"
-          style={modalInputStyle(darkMode)}
-        />
-
-        <input
-          type="datetime-local"
-          value={ddlDate}
-          onChange={(e) => setDDLDate(e.target.value)}
-          style={{
-            ...modalInputStyle(darkMode),
-            marginTop: "14px",
-          }}
-        />
-
-        <select
-          value={courseId}
-          onChange={(e) => setCourseId(e.target.value)}
-          style={{
-            ...modalInputStyle(darkMode),
-            marginTop: "14px",
-            cursor: "pointer",
-          }}
-        >
-          <option value="">未归属课程</option>
-
-          {courses.map((course) => (
-            <option key={course.id} value={course.id}>
-              {course.title}
-            </option>
-          ))}
-        </select>
-
         <div
           style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "12px",
-            marginTop: "24px",
+            display: "grid",
+            gridTemplateColumns: showImageUpload ? "300px 1fr" : "1fr",
+            gap: "28px",
           }}
         >
-          <button
-            onClick={onCancel}
-            style={{
-              border: `1px solid ${colors.border}`,
-              background: darkMode ? "#0F172A" : "#FFFFFF",
-              color: colors.text,
-              borderRadius: "12px",
-              padding: "10px 18px",
-              cursor: "pointer",
-            }}
-          >
-            取消
-          </button>
+          {showImageUpload && (
+            <div
+              style={{
+                background: darkMode ? "rgba(148,163,184,0.12)" : "#F8FAFC",
+                border: `1px dashed ${colors.border}`,
+                borderRadius: "18px",
+                minHeight: "360px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "18px",
+                boxSizing: "border-box",
+              }}
+            >
+              {preview ? (
+                <img
+                  src={preview}
+                  alt="DDL截图预览"
+                  style={{
+                    width: "100%",
+                    maxHeight: "220px",
+                    objectFit: "cover",
+                    borderRadius: "14px",
+                    marginBottom: "18px",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "180px",
+                    height: "160px",
+                    borderRadius: "16px",
+                    background: darkMode ? "#0F172A" : "#E5EAF4",
+                    marginBottom: "20px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: colors.muted,
+                    fontSize: "13px",
+                  }}
+                >
+                  可选图片
+                </div>
+              )}
 
-          <button
-            onClick={onConfirm}
-            style={{
-              border: "none",
-              background: colors.active,
-              color: "#FFFFFF",
-              borderRadius: "12px",
-              padding: "10px 18px",
-              cursor: "pointer",
-            }}
-          >
-            {confirmText}
-          </button>
+              <label
+                style={{
+                  border: `1px solid ${colors.active}`,
+                  color: colors.active,
+                  background: darkMode ? "rgba(129,140,248,0.08)" : "#FFFFFF",
+                  padding: "10px 24px",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                上传图片识别（可选）
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={onUploadImage}
+                  style={{ display: "none" }}
+                />
+              </label>
+
+              <p
+                style={{
+                  color: colors.muted,
+                  fontSize: "13px",
+                  marginTop: "14px",
+                  textAlign: "center",
+                  lineHeight: 1.6,
+                }}
+              >
+                支持截图、照片等格式；
+                <br />
+                不上传也可以手动填写
+              </p>
+            </div>
+          )}
+
+          <div>
+            <SmallLabel colors={colors}>标题</SmallLabel>
+            <input
+              value={ddlTitle}
+              onChange={(e) => setDDLTitle(e.target.value)}
+              placeholder="请输入日程标题"
+              style={modalInputStyle(darkMode)}
+            />
+
+            <SmallLabel colors={colors}>截止时间</SmallLabel>
+            <input
+              type="datetime-local"
+              value={ddlDate}
+              onChange={(e) => setDDLDate(e.target.value)}
+              style={modalInputStyle(darkMode)}
+            />
+
+            <SmallLabel colors={colors}>平台 / 地点</SmallLabel>
+            <input
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              placeholder="例如：在线提交 / 教学平台 / 线下提交"
+              style={modalInputStyle(darkMode)}
+            />
+
+            <SmallLabel colors={colors}>备注</SmallLabel>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="请输入备注（可选）"
+              style={modalInputStyle(darkMode)}
+            />
+
+            <SmallLabel colors={colors}>归属课程</SmallLabel>
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              style={{
+                ...modalInputStyle(darkMode),
+                cursor: "pointer",
+              }}
+            >
+              <option value="">不归属任何课程</option>
+
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.title}
+                </option>
+              ))}
+            </select>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "18px",
+                marginTop: "32px",
+              }}
+            >
+              <button
+                onClick={onCancel}
+                style={{
+                  border: "none",
+                  background: darkMode ? "#0F172A" : "#F1F5F9",
+                  color: colors.title,
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                }}
+              >
+                取消
+              </button>
+
+              <button
+                onClick={onConfirm}
+                style={{
+                  border: "none",
+                  background: colors.active,
+                  color: "#FFFFFF",
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                  boxShadow: "0 14px 28px rgba(29,78,216,0.22)",
+                }}
+              >
+                {confirmText}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SmallLabel({ colors, children }) {
+  return (
+    <div
+      style={{
+        color: colors.text,
+        fontSize: "13px",
+        fontWeight: 700,
+        margin: "12px 0 8px",
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -628,7 +836,7 @@ function DDLModal({
 function modalInputStyle(darkMode) {
   return {
     width: "100%",
-    height: "46px",
+    height: "52px",
     borderRadius: "12px",
     border: darkMode
       ? "1px solid rgba(148,163,184,0.22)"
@@ -640,6 +848,7 @@ function modalInputStyle(darkMode) {
     fontSize: "15px",
     outline: "none",
     fontFamily: "inherit",
+    colorScheme: darkMode ? "dark" : "light",
   };
 }
 

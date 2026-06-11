@@ -4,9 +4,7 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import DDLPanel from "../components/DDLPanel";
 import FolderSection from "../components/FolderSection";
-import {
-  useNavigate
-} from "react-router-dom";
+import {useNavigate} from "react-router-dom";
 
 function HomePage() {
   const [selectedFolder, setSelectedFolder] = useState("全部");
@@ -38,6 +36,9 @@ function HomePage() {
   const [newDDLTitle, setNewDDLTitle] = useState("");
   const [newDDLDate, setNewDDLDate] = useState("");
   const [newDDLCourseId, setNewDDLCourseId] = useState("");
+  const [newDDLPlatform, setNewDDLPlatform] = useState("");
+  const [newDDLNote, setNewDDLNote] = useState("");
+  const [newDDLPreview, setNewDDLPreview] = useState("");
 
   const navigate =useNavigate();
 
@@ -64,8 +65,7 @@ function HomePage() {
                   title:"Java程序设计",
                   starred:false, 
                   noteCount:24,
-                  ddlCount: 3,
-                 
+                  ddlCount: 3, 
                 },
                 {
                   id: 3,
@@ -97,30 +97,23 @@ function HomePage() {
           ];
     });
 
-  const [ddls, setDdls] =
-  useState(() => {
+  const [ddls, setDdls] = useState(() => {
     const saved =localStorage.getItem( "ddls" );
 
     return saved
       ? JSON.parse(saved): [
           {
             id: 1,
-            title:
-              "离散数学作业",
-            date:
-              "2026-06-15 23:59",
-            courseName:
-              "离散数学",
+            title:  "离散数学作业",
+            date:  "2026-06-15 23:59",
+            courseName:  "离散数学",
             completed: false,
           },
           {
             id: 2,
-            title:
-              "宏观经济学论文",
-            date:
-              "2026-06-18",
-            courseName:
-              "宏观经济学",
+            title:  "宏观经济学论文",
+            date: "2026-06-18",
+            courseName:  "宏观经济学",
             completed: false,
           },
         ];
@@ -183,12 +176,9 @@ function HomePage() {
   function parseDDLDate(dateText) {
     if (!dateText) return null;
 
-    const normalized =
-      dateText.replace(" ", "T");
+    const normalized = dateText.replace(" ", "T");
 
-    const date = new Date(
-     normalized
-    );
+    const date = new Date( normalized );
 
     return Number.isNaN(date.getTime())? null: date;}
 
@@ -197,14 +187,8 @@ function HomePage() {
 /* 主页面板显示：
    所有未过期DDL */
   const activeDdls = ddls
-    .filter((ddl) => {
-      const ddlDate =
-        parseDDLDate(
-          ddl.date
-        );
-
-      return (!ddl.completed && ddlDate && ddlDate >= now);
-    })
+    .filter((ddl) => {const ddlDate = parseDDLDate(ddl.date);
+      return (!ddl.completed && ddlDate && ddlDate >= now);})
     .sort( (a, b) =>parseDDLDate( a.date ) -parseDDLDate(  b.date  ) );
 
 /* 小铃铛提醒：
@@ -226,25 +210,56 @@ function HomePage() {
 
   function addDDL() {
     if (!newDDLTitle.trim() || !newDDLDate.trim()) return;
-    const allCourses = folders.flatMap((folder) => folder.courses);
+
     const selectedCourse = allCourses.find(
       (course) => String(course.id) === String(newDDLCourseId)
     );
 
     const newDDL = {
       id: Date.now(),
-      title: newDDLTitle,
+      title: newDDLTitle.trim(),
       date: newDDLDate.replace("T", " "),
+      platform: newDDLPlatform.trim(),
+      note: newDDLNote.trim(),
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       courseId: selectedCourse ? selectedCourse.id : null,
       completed: false,
+      source: newDDLPreview ? "图片识别" : "手动新建",
     };
 
     setDdls([...ddls, newDDL]);
+    resetDDLModal();
+  }
+
+  function uploadDDLImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setNewDDLPreview(URL.createObjectURL(file));
+
+    if (!newDDLTitle.trim()) setNewDDLTitle("法理学论文");
+    if (!newDDLDate.trim()) setNewDDLDate("2026-06-12T23:59");
+    if (!newDDLPlatform.trim()) setNewDDLPlatform("在线提交");
+    if (!newDDLNote.trim()) setNewDDLNote("不少于3000字，参考格式见附件。");
+
+    const matchedCourse = allCourses.find((course) =>
+      String(course.title || "").includes("法理学")
+    );
+    if (matchedCourse && !newDDLCourseId) {
+      setNewDDLCourseId(String(matchedCourse.id));
+    }
+
+    event.target.value = "";
+  }
+
+  function resetDDLModal() {
+    setShowDDLModal(false);
     setNewDDLTitle("");
     setNewDDLDate("");
     setNewDDLCourseId("");
-    setShowDDLModal(false);
+    setNewDDLPlatform("");
+    setNewDDLNote("");
+    setNewDDLPreview("");
   }
 
   function toggleStarCourse(courseId) {
@@ -324,19 +339,13 @@ function HomePage() {
         return true;
       });
 
-      return {
-        ...folder,
-        courses: remainingCourses,
-      };
+      return {  ...folder,  courses: remainingCourses,  };
     });
 
     if (deletedCourse) {
       setFolders(updatedFolders);
 
-      setDeletedCourses([
-        ...deletedCourses,
-      deletedCourse,
-      ]);
+      setDeletedCourses([  ...deletedCourses,deletedCourse,  ]);
 
       setDdls(
         ddls.map((ddl) =>
@@ -358,9 +367,7 @@ function HomePage() {
   }
 
   function restoreCourse(courseId) {
-    const courseToRestore = deletedCourses.find(
-     (course) => String(course.id) === String(courseId)
-    );
+    const courseToRestore = deletedCourses.find( (course) => String(course.id) === String(courseId) );
 
     if (!courseToRestore) return;
 
@@ -368,8 +375,7 @@ function HomePage() {
       folders.map((folder) =>
         folder.id === courseToRestore.folderId
           ? {
-              ...folder,
-              courses: [
+              ...folder,  courses: [
                 ...folder.courses,
                 {
                   id: courseToRestore.id,
@@ -399,9 +405,7 @@ function HomePage() {
     );
 
     setDeletedCourses(
-      deletedCourses.filter(
-        (course) => String(course.id) !== String(courseId)
-      )
+      deletedCourses.filter(  (course) => String(course.id) !== String(courseId)  )
     );
   }
 
@@ -777,44 +781,24 @@ function HomePage() {
       )}
 
       {showDDLModal && (
-        <Modal title="新建 DDL" darkMode={darkMode}>
-          <input
-            value={newDDLTitle}
-            onChange={(e) => setNewDDLTitle(e.target.value)}
-            placeholder="DDL 标题"
-            style={{ ...inputStyle, marginBottom: "14px" }}
-          />
-
-          <input
-            type="datetime-local"
-            value={newDDLDate}
-            onChange={(e) => setNewDDLDate(e.target.value)}
-            style={{ ...inputStyle, marginBottom: "14px" }}
-          />
-
-          <select
-            value={newDDLCourseId}
-            onChange={(e) => setNewDDLCourseId(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">未归属课程</option>
-
-            {folders.flatMap((folder) =>
-              folder.courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.title}
-                </option>
-              ))
-            )}
-          </select>
-
-          <ModalActions
-            onCancel={() => setShowDDLModal(false)}
-            onConfirm={addDDL}
-            confirmText="保存"
-            darkMode={darkMode}
-          />
-        </Modal>
+        <ScheduleModal
+          darkMode={darkMode}
+          courses={allCourses}
+          preview={newDDLPreview}
+          titleValue={newDDLTitle}
+          setTitleValue={setNewDDLTitle}
+          dateValue={newDDLDate}
+          setDateValue={setNewDDLDate}
+          platformValue={newDDLPlatform}
+          setPlatformValue={setNewDDLPlatform}
+          noteValue={newDDLNote}
+          setNoteValue={setNewDDLNote}
+          courseId={newDDLCourseId}
+          setCourseId={setNewDDLCourseId}
+          onUploadImage={uploadDDLImage}
+          onCancel={resetDDLModal}
+          onConfirm={addDDL}
+        />
       )}
 
       {showRenameModal && (
@@ -1005,5 +989,287 @@ function ModalActions({
     </div>
   );
 }
+
+
+function ScheduleModal({
+  darkMode,
+  courses,
+  preview,
+  titleValue,
+  setTitleValue,
+  dateValue,
+  setDateValue,
+  platformValue,
+  setPlatformValue,
+  noteValue,
+  setNoteValue,
+  courseId,
+  setCourseId,
+  onUploadImage,
+  onCancel,
+  onConfirm,
+}) {
+  const colors = {
+    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2E8F0",
+    title: darkMode ? "#F8FAFC" : "#183B63",
+    text: darkMode ? "#CBD5E1" : "#64748B",
+    muted: darkMode ? "#94A3B8" : "#94A3B8",
+    active: darkMode ? "#818CF8" : "#2563EB",
+    soft: darkMode ? "rgba(148,163,184,0.12)" : "#F8FAFC",
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: darkMode ? "rgba(0,0,0,0.52)" : "rgba(15,42,74,0.18)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 999,
+      }}
+    >
+      <div
+        style={{
+          width: "900px",
+          maxWidth: "calc(100vw - 40px)",
+          background: darkMode ? "#1E293B" : "#FFFFFF",
+          border: `1px solid ${colors.border}`,
+          borderRadius: "22px",
+          padding: "32px 36px",
+          boxShadow: darkMode
+            ? "0 28px 60px rgba(0,0,0,0.45)"
+            : "0 24px 48px rgba(15,42,74,0.16)",
+        }}
+      >
+        <h2
+          style={{
+            margin: "0 0 26px",
+            color: colors.title,
+            fontSize: "28px",
+            fontWeight: 800,
+          }}
+        >
+          新建日程
+        </h2>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "300px 1fr",
+            gap: "28px",
+          }}
+        >
+          <div
+            style={{
+              background: colors.soft,
+              border: `1px dashed ${colors.border}`,
+              borderRadius: "18px",
+              minHeight: "360px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "18px",
+              boxSizing: "border-box",
+            }}
+          >
+            {preview ? (
+              <img
+                src={preview}
+                alt="DDL截图预览"
+                style={{
+                  width: "100%",
+                  maxHeight: "220px",
+                  objectFit: "cover",
+                  borderRadius: "14px",
+                  marginBottom: "18px",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "180px",
+                  height: "160px",
+                  borderRadius: "16px",
+                  background: darkMode ? "#0F172A" : "#E5EAF4",
+                  marginBottom: "20px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: colors.muted,
+                  fontSize: "13px",
+                }}
+              >
+                可选图片
+              </div>
+            )}
+
+            <label
+              style={{
+                border: `1px solid ${colors.active}`,
+                color: colors.active,
+                background: darkMode ? "rgba(129,140,248,0.08)" : "#FFFFFF",
+                padding: "10px 24px",
+                borderRadius: "12px",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              上传图片识别（可选）
+              <input
+                type="file"
+                accept="image/*"
+                onChange={onUploadImage}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            <p
+              style={{
+                color: colors.muted,
+                fontSize: "13px",
+                marginTop: "14px",
+                textAlign: "center",
+                lineHeight: 1.6,
+              }}
+            >
+              支持截图、照片等格式；
+              <br />
+              不上传也可以手动填写
+            </p>
+          </div>
+
+          <div>
+            <ScheduleLabel colors={colors}>标题</ScheduleLabel>
+            <input
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              placeholder="请输入日程标题"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>截止时间</ScheduleLabel>
+            <input
+              type="datetime-local"
+              value={dateValue}
+              onChange={(e) => setDateValue(e.target.value)}
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>平台 / 地点</ScheduleLabel>
+            <input
+              value={platformValue}
+              onChange={(e) => setPlatformValue(e.target.value)}
+              placeholder="例如：在线提交 / 教学平台 / 线下提交"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>备注</ScheduleLabel>
+            <input
+              value={noteValue}
+              onChange={(e) => setNoteValue(e.target.value)}
+              placeholder="请输入备注（可选）"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>归属课程</ScheduleLabel>
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              style={scheduleInputStyle(darkMode)}
+            >
+              <option value="">不归属任何课程</option>
+
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.title}
+                </option>
+              ))}
+            </select>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "18px",
+                marginTop: "32px",
+              }}
+            >
+              <button
+                onClick={onCancel}
+                style={{
+                  border: "none",
+                  background: darkMode ? "#0F172A" : "#F1F5F9",
+                  color: colors.title,
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                }}
+              >
+                取消
+              </button>
+
+              <button
+                onClick={onConfirm}
+                style={{
+                  border: "none",
+                  background: colors.active,
+                  color: "#FFFFFF",
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                  boxShadow: "0 14px 28px rgba(29,78,216,0.22)",
+                }}
+              >
+                保存日程
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleLabel({ colors, children }) {
+  return (
+    <div
+      style={{
+        color: colors.text,
+        fontSize: "13px",
+        fontWeight: 700,
+        margin: "12px 0 8px",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function scheduleInputStyle(darkMode) {
+  return {
+    width: "100%",
+    height: "52px",
+    borderRadius: "12px",
+    border: darkMode
+      ? "1px solid rgba(148,163,184,0.24)"
+      : "1px solid #D6E0EF",
+    background: darkMode ? "#0F172A" : "#FFFFFF",
+    color: darkMode ? "#F8FAFC" : "#183B63",
+    padding: "0 16px",
+    boxSizing: "border-box",
+    fontSize: "15px",
+    outline: "none",
+    fontFamily: "inherit",
+    colorScheme: darkMode ? "dark" : "light",
+  };
+}
+
 
 export default HomePage;
