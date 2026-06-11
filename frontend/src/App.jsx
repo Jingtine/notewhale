@@ -7,6 +7,7 @@ import {
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import CoursePage from "./pages/CoursePage";
+import NoteEditorPage from "./pages/NoteEditorPage";
 import DDLPage from "./pages/DDLPage";
 
 function App() {
@@ -35,6 +36,19 @@ function App() {
         element={
           user ? (
             <CoursePage />
+          ) : (
+            <Navigate to="/login" />
+          )
+        }
+      />
+
+
+
+      <Route
+        path="/course/:courseId/note/:noteId"
+        element={
+          user ? (
+            <NoteEditorPage />
           ) : (
             <Navigate to="/login" />
           )

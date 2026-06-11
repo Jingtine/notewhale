@@ -194,6 +194,7 @@ function CoursePage() {
       id: Date.now(),
       title: generatedNoteTitle.trim(),
       content: generatedNoteContent.trim(),
+      syntaxMode: "markdown",
       source: generatedFromResource?.name || "课程资料",
       sourceResourceId: generatedFromResource?.id || null,
       sourceResourceName: generatedFromResource?.name || "课程资料",
@@ -207,7 +208,7 @@ function CoursePage() {
 
     saveNotes([...notes, newNote]);
     closeGeneratedNoteModal();
-    setActiveTab("notes");
+    navigate(`/course/${id}/note/${newNote.id}`);
   }
 
   function closeGeneratedNoteModal() {
@@ -218,10 +219,31 @@ function CoursePage() {
   }
 
   function openNoteEditor(note = null) {
-    setEditingNote(note);
-    setEditingNoteTitle(note?.title || "");
-    setEditingNoteContent(note?.content || "");
-    setShowNoteEditor(true);
+    if (note) {
+      navigate(`/course/${id}/note/${note.id}`);
+      return;
+    }
+
+    if (!course) return;
+
+    const newNote = {
+      id: Date.now(),
+      title: `${course.title} · 新建笔记`,
+      content: "",
+      syntaxMode: "markdown",
+      courseId: course.id,
+      courseName: course.title,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      aiGenerated: false,
+      source: "手动记录",
+      sourceResourceId: null,
+      sourceResourceName: "手动记录",
+      sourceResourceType: "笔记",
+    };
+
+    saveNotes([...notes, newNote]);
+    navigate(`/course/${id}/note/${newNote.id}`);
   }
 
   function saveNoteEditor() {
@@ -357,10 +379,10 @@ function CoursePage() {
         style={{
           flex: 1,
           overflowY: "auto",
-          maxWidth: "1180px",
+          maxWidth: "none",
           width: "100%",
-          margin: "0 auto",
-          padding: "36px 32px 110px",
+          margin: "0",
+          padding: "22px 24px 96px",
           boxSizing: "border-box",
         }}
       >
@@ -527,25 +549,6 @@ function CoursePage() {
             setContent={setGeneratedNoteContent}
             onCancel={closeGeneratedNoteModal}
             onSave={saveGeneratedNote}
-          />
-        )}
-
-        {showNoteEditor && (
-          <NoteEditorModal
-            darkMode={darkMode}
-            colors={colors}
-            note={editingNote}
-            sourceName={editingNote?.sourceResourceName || editingNote?.source || "手动记录"}
-            title={editingNoteTitle}
-            setTitle={setEditingNoteTitle}
-            content={editingNoteContent}
-            setContent={setEditingNoteContent}
-            onCancel={closeNoteEditor}
-            onSave={saveNoteEditor}
-            onExport={() => downloadMarkdown(editingNoteTitle, editingNoteContent)}
-            onDelete={
-              editingNote ? () => askDelete("note", editingNote) : undefined
-            }
           />
         )}
 
