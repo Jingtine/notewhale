@@ -73,7 +73,7 @@ function LoginPage({ onLogin }) {
     }
 
     return {
-      text: "本地体验模式",
+      text: API_BASE_URL.includes("127.0.0.1") || API_BASE_URL.includes("localhost") ? "本地体验模式" : "后端连接失败",
       dot: "#3B82F6",
       bg: "#EFF6FF",
       color: "#1D4ED8",
@@ -85,7 +85,7 @@ function LoginPage({ onLogin }) {
     const cleanName = name.trim() || cleanAccount.split("@")[0] || studentId.trim();
 
     if (apiState !== "online") {
-      setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
+      setError(`当前连接的后端地址不可用：${API_BASE_URL}/health。请检查 Vercel 环境变量或后端 CORS 配置。`);
       return;
     }
 
@@ -138,7 +138,7 @@ function LoginPage({ onLogin }) {
 
   async function useDemoAccount() {
     if (apiState !== "online") {
-      setError("演示账号也需要后端在线。请先启动 FastAPI 后端。");
+      setError(`演示账号也需要后端在线。当前后端地址：${API_BASE_URL}/health`);
       return;
     }
 
@@ -213,8 +213,8 @@ function LoginPage({ onLogin }) {
             </span>
             <span style={{ color: "#64748B" }}>
               {apiState === "online"
-                ? "API 可用，后续可切换真实数据"
-                : "后端未启动时仍可完成前端演示"}
+                ? `API 已连接：${API_BASE_URL}`
+                : `当前检测地址：${API_BASE_URL}/health`}
             </span>
           </div>
         </section>
@@ -240,7 +240,7 @@ function LoginPage({ onLogin }) {
               }}
             >
               <span style={{ ...smallDotStyle, background: apiBadge.dot }} />
-              {apiState === "online" ? "API" : "Local"}
+              {apiState === "online" ? "API" : API_BASE_URL.includes("127.0.0.1") ? "Local" : "API Error"}
             </span>
           </div>
 
