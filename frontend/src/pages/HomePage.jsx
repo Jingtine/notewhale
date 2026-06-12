@@ -24,6 +24,7 @@ import {
   createDdl as createBackendDdl,
   recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
+import { getApiBaseUrl } from "../api/apiClient";
 
 function getUserStorageKey(user, key) {
   const rawUserId =
@@ -885,7 +886,7 @@ function HomePage({ user = null, onLogout } = {}) {
 
     async function checkBackend() {
       try {
-        const response = await fetch("http://127.0.0.1:8000/health", {
+        const response = await fetch(`${getApiBaseUrl()}/health`, {
           cache: "no-store",
         });
 
@@ -1778,66 +1779,93 @@ function DataStatusModal({
   onClose,
 }) {
   const colors = {
-    panel: darkMode ? "#1E293B" : "#FFFFFF",
-    card: darkMode ? "rgba(15,23,42,0.55)" : "#F8FAFC",
-    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2E8F0",
-    title: darkMode ? "#F8FAFC" : "#183B63",
+    panel: darkMode ? "#111827" : "#FFFFFF",
+    card: darkMode ? "rgba(30,41,59,0.72)" : "#F8FBFF",
+    cardStrong: darkMode ? "rgba(30,41,59,0.92)" : "#FFFFFF",
+    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2EAF5",
+    title: darkMode ? "#F8FAFC" : "#173B63",
     text: darkMode ? "#CBD5E1" : "#64748B",
     muted: darkMode ? "#94A3B8" : "#94A3B8",
-    active: darkMode ? "#818CF8" : "#2563EB",
+    active: darkMode ? "#93C5FD" : "#2563EB",
     success: "#10B981",
     warning: "#F59E0B",
+    danger: "#EF4444",
   };
 
-  const storageMode = apiStatus.online ? "API 可连接 / 本地兼容" : "本地存储模式";
-  const syncText = apiStatus.online ? "后端连接正常，可进入接口接入阶段" : "后端未启动，数据暂存浏览器 localStorage";
+  const isOnline = Boolean(apiStatus.online);
+  const displayName = user?.name || "鲸记用户";
+  const accountText = user?.account || user?.email || "本地体验账号";
+  const roleText = user?.role || "学生";
+  const storageMode = isOnline ? "云端数据库同步" : "本地浏览器缓存";
+  const syncText = isOnline
+    ? "Vercel 前端、Render 后端与 Supabase 数据库已连通。"
+    : "后端暂不可用，当前仅保留本地演示数据。";
 
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        background: darkMode ? "rgba(0,0,0,0.52)" : "rgba(15,42,74,0.18)",
+        background: darkMode ? "rgba(2,6,23,0.62)" : "rgba(15,42,74,0.20)",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
         zIndex: 1000,
+        padding: "28px",
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          width: "720px",
-          maxWidth: "calc(100vw - 40px)",
+          width: "min(880px, 100%)",
+          maxHeight: "calc(100vh - 56px)",
+          overflowY: "auto",
           background: colors.panel,
           border: `1px solid ${colors.border}`,
-          borderRadius: "18px",
+          borderRadius: "24px",
           padding: "26px",
+          boxSizing: "border-box",
           boxShadow: darkMode
-            ? "0 28px 60px rgba(0,0,0,0.45)"
-            : "0 24px 48px rgba(15,42,74,0.16)",
+            ? "0 28px 80px rgba(0,0,0,0.45)"
+            : "0 28px 80px rgba(15,42,74,0.16)",
         }}
       >
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "20px",
+            gap: "18px",
             alignItems: "flex-start",
             marginBottom: "22px",
           }}
         >
           <div>
+            <div
+              style={{
+                color: colors.active,
+                fontSize: "12px",
+                fontWeight: 900,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Account & Sync
+            </div>
+
             <h2
               style={{
                 margin: 0,
                 color: colors.title,
-                fontSize: "26px",
-                fontWeight: 800,
-                letterSpacing: "-0.03em",
+                fontSize: "28px",
+                fontWeight: 850,
+                letterSpacing: "-0.05em",
+                lineHeight: 1.15,
               }}
             >
-              系统设置
+              账号与同步状态
             </h2>
+
             <p
               style={{
                 margin: "8px 0 0",
@@ -1846,7 +1874,7 @@ function DataStatusModal({
                 lineHeight: 1.7,
               }}
             >
-              查看账号入口、数据沉淀、存储方式与后端接入状态。
+              查看当前账号、云端连接与数据统计。该页面仅用于状态确认，不作为主要功能入口。
             </p>
           </div>
 
@@ -1856,12 +1884,13 @@ function DataStatusModal({
               border: "none",
               background: colors.card,
               color: colors.text,
-              width: "36px",
-              height: "36px",
-              borderRadius: "10px",
+              width: "42px",
+              height: "42px",
+              borderRadius: "14px",
               cursor: "pointer",
-              fontSize: "22px",
+              fontSize: "24px",
               lineHeight: 1,
+              flexShrink: 0,
             }}
           >
             ×
@@ -1871,36 +1900,128 @@ function DataStatusModal({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
             gap: "16px",
             marginBottom: "16px",
           }}
         >
-          <StatusPanel colors={colors} title="当前用户">
-            <InfoLine colors={colors} label="昵称" value={user?.name || "鲸记用户"} />
-            <InfoLine colors={colors} label="身份" value={user?.role || "学生"} />
-            <InfoLine colors={colors} label="账号" value={user?.account || user?.email || "本地体验账号"} />
-          </StatusPanel>
+          <div
+            style={{
+              background: colors.cardStrong,
+              border: `1px solid ${colors.border}`,
+              borderRadius: "18px",
+              padding: "18px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "16px",
+                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
+                  color: isOnline ? colors.success : colors.warning,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "20px",
+                  fontWeight: 900,
+                  flexShrink: 0,
+                }}
+              >
+                {displayName.slice(0, 1)}
+              </div>
 
-          <StatusPanel colors={colors} title="同步状态">
-            <InfoLine
-              colors={colors}
-              label="后端状态"
-              value={apiStatus.online ? "在线" : "离线"}
-              tone={apiStatus.online ? colors.success : colors.warning}
-            />
-            <InfoLine colors={colors} label="存储模式" value={storageMode} />
-            <InfoLine colors={colors} label="课程同步" value={backendCourseMessage || "等待同步课程"} />
-            <InfoLine colors={colors} label="DDL同步" value={backendDdlMessage || "等待同步 DDL"} />
-            <InfoLine colors={colors} label="说明" value={syncText} />
-          </StatusPanel>
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    color: colors.title,
+                    fontSize: "17px",
+                    fontWeight: 850,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {displayName}
+                </div>
+                <div
+                  style={{
+                    color: colors.text,
+                    fontSize: "13px",
+                    marginTop: "5px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {roleText} · {accountText}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
+              <InfoLine colors={colors} label="账号状态" value="已登录" tone={colors.success} />
+              <InfoLine colors={colors} label="数据隔离" value="按账号独立保存" />
+              <InfoLine colors={colors} label="登录模式" value={isOnline ? "线上 API" : "本地模式"} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: colors.cardStrong,
+              border: `1px solid ${colors.border}`,
+              borderRadius: "18px",
+              padding: "18px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "14px" }}>
+              <h3 style={{ margin: 0, color: colors.title, fontSize: "17px", fontWeight: 850 }}>
+                云端同步
+              </h3>
+
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
+                  color: isOnline ? colors.success : colors.warning,
+                  fontSize: "12px",
+                  fontWeight: 850,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    background: isOnline ? colors.success : colors.warning,
+                  }}
+                />
+                {isOnline ? "Online" : "Local"}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: "10px" }}>
+              <InfoLine colors={colors} label="后端 API" value={isOnline ? "已连接" : "未连接"} tone={isOnline ? colors.success : colors.warning} />
+              <InfoLine colors={colors} label="存储方式" value={storageMode} />
+              <InfoLine colors={colors} label="课程数据" value={backendCourseMessage || "等待课程同步"} />
+              <InfoLine colors={colors} label="DDL 数据" value={backendDdlMessage || "等待 DDL 同步"} />
+            </div>
+          </div>
         </div>
 
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-            gap: "12px",
+            gap: "10px",
             marginBottom: "16px",
           }}
         >
@@ -1914,17 +2035,20 @@ function DataStatusModal({
 
         <div
           style={{
-            background: colors.card,
-            border: `1px solid ${colors.border}`,
-            borderRadius: "14px",
-            padding: "16px",
+            background: isOnline ? "rgba(16,185,129,0.08)" : colors.card,
+            border: `1px solid ${isOnline ? "rgba(16,185,129,0.22)" : colors.border}`,
+            borderRadius: "18px",
+            padding: "16px 18px",
             color: colors.text,
             fontSize: "14px",
             lineHeight: 1.8,
           }}
         >
-          当前版本已完成轻量登录入口、课程空间、资料记录、笔记编辑与 DDL 管理。
-          后续接入 API 后，localStorage 将逐步替换为数据库与文件上传接口，实现真实多用户数据同步。
+          <strong style={{ color: colors.title }}>当前状态：</strong>
+          {syncText}
+          {isOnline
+            ? " 课程、DDL、笔记等核心数据会优先写入云端，并保留少量本地缓存用于页面体验。"
+            : " 请启动后端或检查线上 API 地址后再进行多设备同步测试。"}
         </div>
       </div>
     </div>
@@ -1935,10 +2059,10 @@ function StatusPanel({ colors, title, children }) {
   return (
     <div
       style={{
-        background: colors.card,
+        background: colors.cardStrong || colors.card,
         border: `1px solid ${colors.border}`,
-        borderRadius: "14px",
-        padding: "16px",
+        borderRadius: "18px",
+        padding: "18px",
         minWidth: 0,
       }}
     >
@@ -1946,13 +2070,13 @@ function StatusPanel({ colors, title, children }) {
         style={{
           margin: "0 0 12px",
           color: colors.title,
-          fontSize: "16px",
-          fontWeight: 800,
+          fontSize: "17px",
+          fontWeight: 850,
         }}
       >
         {title}
       </h3>
-      <div style={{ display: "grid", gap: "9px" }}>{children}</div>
+      <div style={{ display: "grid", gap: "10px" }}>{children}</div>
     </div>
   );
 }
@@ -1961,15 +2085,18 @@ function InfoLine({ colors, label, value, tone }) {
   return (
     <div
       style={{
-        display: "flex",
-        justifyContent: "space-between",
+        display: "grid",
+        gridTemplateColumns: "86px minmax(0, 1fr)",
         gap: "12px",
+        alignItems: "center",
         color: colors.text,
         fontSize: "13px",
+        minWidth: 0,
       }}
     >
-      <span style={{ flexShrink: 0 }}>{label}</span>
+      <span style={{ color: colors.muted, whiteSpace: "nowrap" }}>{label}</span>
       <strong
+        title={String(value || "")}
         style={{
           color: tone || colors.title,
           textAlign: "right",
@@ -1977,6 +2104,7 @@ function InfoLine({ colors, label, value, tone }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          minWidth: 0,
         }}
       >
         {value}
@@ -1989,30 +2117,31 @@ function StatBlock({ colors, label, value }) {
   return (
     <div
       style={{
-        background: colors.card,
+        background: colors.cardStrong || colors.card,
         border: `1px solid ${colors.border}`,
-        borderRadius: "14px",
-        padding: "14px 10px",
+        borderRadius: "16px",
+        padding: "13px 10px",
         textAlign: "center",
+        minWidth: 0,
       }}
     >
       <div
         style={{
           color: colors.title,
-          fontSize: "22px",
+          fontSize: "24px",
           fontWeight: 900,
           letterSpacing: "-0.04em",
+          lineHeight: 1,
         }}
       >
         {value}
       </div>
-      <div style={{ color: colors.muted, fontSize: "12px", marginTop: "5px" }}>
+      <div style={{ color: colors.muted, fontSize: "12px", marginTop: "8px" }}>
         {label}
       </div>
     </div>
   );
 }
-
 
 function buildGlobalSearchItems({ courses = [], notes = [], resources = [], ddls = [] }) {
   const courseTitleById = new Map(courses.map((course) => [String(course.id), course.title]));
