@@ -5,8 +5,23 @@ import Footer from "../components/Footer";
 import DDLPanel from "../components/DDLPanel";
 import FolderSection from "../components/FolderSection";
 import {useNavigate} from "react-router-dom";
+import {
+  createCourse as createBackendCourse,
+  updateCourse as updateBackendCourse,
+  deleteCourse as deleteBackendCourse,
+  getDeletedCourses as getBackendDeletedCourses,
+  restoreDeletedCourse as restoreBackendDeletedCourse,
+  permanentlyDeleteCourse as permanentlyDeleteBackendCourse,
+} from "../api/courseApi";
+import {
+  getFolders as getBackendFolders,
+  createFolder as createBackendFolder,
+  updateFolder as updateBackendFolder,
+  deleteFolder as deleteBackendFolder,
+} from "../api/folderApi";
+import { getDdls, createDdl as createBackendDdl } from "../api/ddlApi";
 
-function HomePage() {
+function HomePage({ user = null, onLogout } = {}) {
   const [selectedFolder, setSelectedFolder] = useState("全部");
   const [searchText, setSearchText] = useState("");
   const [darkMode,setDarkMode,] = useState(() => {
@@ -32,6 +47,10 @@ function HomePage() {
   const [showFolderDeleteConfirm, setShowFolderDeleteConfirm] = useState(false);
   const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState(null);
 
+  const [showFolderRenameModal, setShowFolderRenameModal] = useState(false);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameFolderName, setRenameFolderName] = useState("");
+
   const [showDDLModal, setShowDDLModal] = useState(false);
   const [newDDLTitle, setNewDDLTitle] = useState("");
   const [newDDLDate, setNewDDLDate] = useState("");
@@ -42,9 +61,21 @@ function HomePage() {
 
   const navigate =useNavigate();
 
+  const [showDataStatus, setShowDataStatus] = useState(false);
+  const [apiStatus, setApiStatus] = useState({
+    checking: true,
+    online: false,
+    message: "正在检测后端连接",
+  });
+
+  const [backendCourses, setBackendCourses] = useState([]);
+  const [backendCourseMessage, setBackendCourseMessage] = useState("等待同步课程");
+  const [backendDdlMessage, setBackendDdlMessage] = useState("等待同步 DDL");
+
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renamingCourse, setRenamingCourse] = useState(null);
   const [renameCourseName, setRenameCourseName] = useState("");
+  const [renameCourseFolderId, setRenameCourseFolderId] = useState("");
 
   const [folders, setFolders] =
     useState(() => { const saved =localStorage.getItem("folders");
@@ -119,12 +150,29 @@ function HomePage() {
         ];
   });
 
-  function addFolder() {
-    if (!newFolderName.trim()) return;
+  async function addFolder() {
+    const title = newFolderName.trim();
+    if (!title) return;
+
+    if (apiStatus.online) {
+      try {
+        const savedFolder = await createBackendFolder({ title });
+        const mappedFolder = mapBackendFolder(savedFolder);
+
+        setFolders((prevFolders) => [...prevFolders, mappedFolder]);
+        setSelectedFolder(mappedFolder.title);
+        setBackendCourseMessage("文件夹已同步到后端");
+        setNewFolderName("");
+        setShowFolderModal(false);
+        return;
+      } catch (error) {
+        alert(error.message || "后端文件夹创建失败，已切换为本地保存");
+      }
+    }
 
     const newFolder = {
       id: Date.now(),
-      title: newFolderName,
+      title,
       courses: [],
     };
 
@@ -139,12 +187,113 @@ function HomePage() {
     setShowCourseModal(true);
   }
 
-  function addCourse() {
+  async function addCourse() {
     if (!newCourseName.trim() || !targetFolderId) return;
+
+    const title = newCourseName.trim();
+
+    if (String(targetFolderId) === "__unassigned") {
+      if (apiStatus.online) {
+        try {
+          const savedCourse = await createBackendCourse({
+            title,
+            starred: false,
+            folderId: null,
+            folderName: "",
+          });
+
+          const mappedCourse = mapBackendCourse(savedCourse);
+
+          setFolders((prevFolders) =>
+            addCourseToUnassignedFolder(prevFolders, mappedCourse)
+          );
+          setBackendCourseMessage("未归属课程已同步到后端");
+          setNewCourseName("");
+          setTargetFolderId("");
+          setShowCourseModal(false);
+          return;
+        } catch (error) {
+          alert(error.message || "后端课程创建失败，已切换为本地保存");
+        }
+      }
+
+      const newCourse = {
+        id: Date.now(),
+        title,
+        starred: false,
+        noteCount: 0,
+        ddlCount: 0,
+      };
+
+      setFolders((prevFolders) =>
+        addCourseToUnassignedFolder(prevFolders, newCourse)
+      );
+      setNewCourseName("");
+      setTargetFolderId("");
+      setShowCourseModal(false);
+      return;
+    }
+
+    const targetFolder = folders.find(
+      (folder) => String(folder.id) === String(targetFolderId)
+    );
+
+    if (!targetFolder) return;
+
+    if (apiStatus.online) {
+      try {
+        let backendFolder = targetFolder;
+
+        // 本地旧文件夹还没有 backendId 时，先在后端创建对应文件夹。
+        if (!targetFolder.backendSynced || !targetFolder.backendId) {
+          const savedFolder = await createBackendFolder({
+            title: targetFolder.title,
+          });
+          backendFolder = mapBackendFolder(savedFolder);
+        }
+
+        const savedCourse = await createBackendCourse({
+          title,
+          starred: false,
+          folderId: backendFolder.backendId,
+          folderName: backendFolder.title,
+        });
+
+        const mappedCourse = mapBackendCourse(savedCourse);
+
+        setFolders((prevFolders) =>
+          prevFolders.map((folder) => {
+            if (String(folder.id) !== String(targetFolderId)) return folder;
+
+            return {
+              ...folder,
+              id: backendFolder.id,
+              backendId: backendFolder.backendId,
+              backendSynced: true,
+              title: backendFolder.title,
+              courses: [
+                ...(folder.courses || []).filter(
+                  (course) => String(course.title) !== String(mappedCourse.title)
+                ),
+                mappedCourse,
+              ],
+            };
+          })
+        );
+
+        setBackendCourseMessage("课程与所属文件夹已同步到后端");
+        setNewCourseName("");
+        setTargetFolderId("");
+        setShowCourseModal(false);
+        return;
+      } catch (error) {
+        alert(error.message || "后端课程创建失败，已切换为本地保存");
+      }
+    }
 
     const newCourse = {
       id: Date.now(),
-      title: newCourseName,
+      title,
       starred: false,
       noteCount: 0,
       ddlCount: 0,
@@ -208,23 +357,48 @@ function HomePage() {
 
 
 
-  function addDDL() {
+  async function addDDL() {
     if (!newDDLTitle.trim() || !newDDLDate.trim()) return;
 
     const selectedCourse = allCourses.find(
       (course) => String(course.id) === String(newDDLCourseId)
     );
 
-    const newDDL = {
-      id: Date.now(),
+    const normalizedDate = newDDLDate.replace("T", " ");
+
+    const baseDDL = {
       title: newDDLTitle.trim(),
-      date: newDDLDate.replace("T", " "),
+      date: normalizedDate,
       platform: newDDLPlatform.trim(),
       note: newDDLNote.trim(),
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       courseId: selectedCourse ? selectedCourse.id : null,
       completed: false,
       source: newDDLPreview ? "图片识别" : "手动新建",
+    };
+
+    if (apiStatus.online) {
+      try {
+        const savedDdl = await createBackendDdl({
+          ...baseDDL,
+          // 后端只接收数据库课程 id；本地课程不强行写入 courseId，避免和后端课程 id 冲突。
+          courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
+          courseName: baseDDL.courseName,
+        });
+
+        const nextDdls = [mapBackendDdl(savedDdl), ...ddls];
+        setDdls(nextDdls);
+        setBackendDdlMessage(`已同步 ${nextDdls.filter((ddl) => ddl.backendSynced).length} 条 DDL`);
+        resetDDLModal();
+        return;
+      } catch (error) {
+        alert(error.message || "后端 DDL 创建失败，已切换为本地保存");
+      }
+    }
+
+    const newDDL = {
+      id: Date.now(),
+      ...baseDDL,
     };
 
     setDdls([...ddls, newDDL]);
@@ -262,47 +436,140 @@ function HomePage() {
     setNewDDLPreview("");
   }
 
-  function toggleStarCourse(courseId) {
+  async function toggleStarCourse(courseId) {
+    const targetCourse = allCourses.find(
+      (course) => String(course.id) === String(courseId)
+    );
+    const nextStarred = !targetCourse?.starred;
+
     setFolders(
       folders.map((folder) => ({
         ...folder,
         courses: folder.courses.map((course) =>
-          course.id === courseId
-            ? { ...course, starred: !course.starred }
+          String(course.id) === String(courseId)
+            ? { ...course, starred: nextStarred }
             : course
         ),
       }))
     );
+
+    if (targetCourse?.backendSynced && targetCourse.backendId) {
+      try {
+        await updateBackendCourse(targetCourse.backendId, {
+          starred: nextStarred,
+        });
+      } catch {
+        setBackendCourseMessage("收藏状态暂未同步到后端");
+      }
+    }
   }
 
   function openRenameCourseModal(courseId, currentName) {
+    const currentFolder = folders.find((folder) =>
+      (folder.courses || []).some((course) => String(course.id) === String(courseId))
+    );
+
     setRenamingCourse(courseId);
     setRenameCourseName(currentName);
+    setRenameCourseFolderId(currentFolder ? String(currentFolder.id) : "__unassigned");
     setShowRenameModal(true);
   }
 
-  function confirmRenameCourse() {
+  async function confirmRenameCourse() {
     if (!renameCourseName.trim() || !renamingCourse) return;
 
     const newName = renameCourseName.trim();
-
-    setFolders(
-      folders.map((folder) => ({
-        ...folder,
-        courses: folder.courses.map((course) =>
-          course.id === renamingCourse ? {...course,title: newName,}
-            : course
-        ),
-      }))
+    const targetCourse = allCourses.find(
+      (course) => String(course.id) === String(renamingCourse)
     );
+
+    if (!targetCourse) return;
+
+    const oldFolder = folders.find((folder) =>
+      (folder.courses || []).some((course) => String(course.id) === String(renamingCourse))
+    );
+
+    const moveToUnassigned = String(renameCourseFolderId) === "__unassigned";
+    const selectedFolder = moveToUnassigned
+      ? null
+      : folders.find((folder) => String(folder.id) === String(renameCourseFolderId));
+
+    if (!moveToUnassigned && !selectedFolder) return;
+
+    let backendFolder = selectedFolder;
+
+    if (targetCourse?.backendSynced && targetCourse.backendId) {
+      try {
+        if (!moveToUnassigned && selectedFolder && (!selectedFolder.backendSynced || !selectedFolder.backendId)) {
+          const savedFolder = await createBackendFolder({ title: selectedFolder.title });
+          backendFolder = mapBackendFolder(savedFolder);
+        }
+
+        await updateBackendCourse(targetCourse.backendId, {
+          title: newName,
+          folderId: moveToUnassigned ? null : backendFolder?.backendId,
+          folderName: moveToUnassigned ? "" : backendFolder?.title,
+        });
+
+        setBackendCourseMessage("课程信息已同步到后端");
+      } catch (error) {
+        alert(error.message || "后端课程编辑失败");
+        return;
+      }
+    }
+
+    const editedCourse = {
+      ...targetCourse,
+      title: newName,
+      folderId: moveToUnassigned ? null : backendFolder?.id,
+      backendFolderId: moveToUnassigned ? null : backendFolder?.backendId || null,
+      folderName: moveToUnassigned ? "" : backendFolder?.title || "",
+    };
+
+    let nextFolders = folders.map((folder) => ({
+      ...folder,
+      ...(backendFolder && String(folder.id) === String(selectedFolder?.id)
+        ? {
+            id: backendFolder.id,
+            backendId: backendFolder.backendId,
+            backendSynced: backendFolder.backendSynced,
+            title: backendFolder.title,
+          }
+        : {}),
+      courses: (folder.courses || []).filter(
+        (course) => String(course.id) !== String(renamingCourse)
+      ),
+    }));
+
+    if (moveToUnassigned) {
+      nextFolders = addCourseToUnassignedFolder(nextFolders, editedCourse);
+    } else {
+      nextFolders = nextFolders.map((folder) =>
+        String(folder.id) === String(backendFolder?.id)
+          ? {
+              ...folder,
+              courses: [...(folder.courses || []), editedCourse],
+            }
+          : folder
+      );
+    }
+
+    setFolders(nextFolders);
 
     setDdls(ddls.map((ddl) =>
-        ddl.courseId === renamingCourse? {  ...ddl, courseName: newName,  }: ddl)
-    );
+      String(ddl.courseId) === String(renamingCourse)
+        ? { ...ddl, courseName: newName }
+        : ddl
+    ));
+
+    if (selectedFolder === oldFolder?.title && oldFolder?.courses?.length === 1) {
+      setSelectedFolder("全部");
+    }
 
     setShowRenameModal(false);
     setRenamingCourse(null);
     setRenameCourseName("");
+    setRenameCourseFolderId("");
 }
 
   // function renameCourse(courseId, newName) {
@@ -323,72 +590,142 @@ function HomePage() {
     setShowDeleteConfirm(true);
   }
 
-  function confirmDeleteCourse() {
+  async function confirmDeleteCourse() {
     let deletedCourse = null;
 
-    const updatedFolders = folders.map((folder) => {
-      const remainingCourses = folder.courses.filter((course) => {
-        if (course.id === pendingDeleteCourseId) {
+    folders.forEach((folder) => {
+      (folder.courses || []).forEach((course) => {
+        if (String(course.id) === String(pendingDeleteCourseId)) {
           deletedCourse = {
             ...course,
             folderId: folder.id,
             folderTitle: folder.title,
+            backendFolderId: folder.backendId || course.backendFolderId || null,
+            deletedAt: Date.now(),
+            backendDeleted: Boolean(course.backendSynced),
           };
-          return false;
         }
-        return true;
       });
-
-      return {  ...folder,  courses: remainingCourses,  };
     });
 
-    if (deletedCourse) {
-      setFolders(updatedFolders);
-
-      setDeletedCourses([  ...deletedCourses,deletedCourse,  ]);
-
-      setDdls(
-        ddls.map((ddl) =>
-          String(ddl.courseId) === String(deletedCourse.id)
-            ? {
-                ...ddl,
-                previousCourseId: deletedCourse.id,
-                previousCourseName: deletedCourse.title,
-                courseId: null,
-                courseName: "未归属课程",
-              }
-            : ddl
-        )
-      );
+    if (!deletedCourse) {
+      setPendingDeleteCourseId(null);
+      setShowDeleteConfirm(false);
+      return;
     }
+
+    if (deletedCourse.backendSynced && deletedCourse.backendId) {
+      try {
+        await deleteBackendCourse(deletedCourse.backendId);
+        setBackendCourseMessage("课程已进入数据库回收站");
+      } catch (error) {
+        alert(error.message || "后端课程移入回收站失败");
+        return;
+      }
+    }
+
+    const updatedFolders = folders.map((folder) => ({
+      ...folder,
+      courses: (folder.courses || []).filter(
+        (course) => String(course.id) !== String(pendingDeleteCourseId)
+      ),
+    }));
+
+    setFolders(updatedFolders);
+
+    setDeletedCourses([
+      ...deletedCourses.filter(
+        (course) => String(course.id) !== String(deletedCourse.id)
+      ),
+      deletedCourse,
+    ]);
+
+    setDdls(
+      ddls.map((ddl) =>
+        String(ddl.courseId) === String(deletedCourse.id)
+          ? {
+              ...ddl,
+              previousCourseId: deletedCourse.id,
+              previousCourseName: deletedCourse.title,
+              courseId: null,
+              courseName: "未归属课程",
+            }
+          : ddl
+      )
+    );
 
     setPendingDeleteCourseId(null);
     setShowDeleteConfirm(false);
   }
 
-  function restoreCourse(courseId) {
-    const courseToRestore = deletedCourses.find( (course) => String(course.id) === String(courseId) );
+  async function restoreCourse(courseId) {
+    const courseToRestore = deletedCourses.find(
+      (course) => String(course.id) === String(courseId)
+    );
 
     if (!courseToRestore) return;
 
-    setFolders(
-      folders.map((folder) =>
-        folder.id === courseToRestore.folderId
-          ? {
-              ...folder,  courses: [
-                ...folder.courses,
-                {
-                  id: courseToRestore.id,
-                  title: courseToRestore.title,
-                  starred: courseToRestore.starred,
-                  noteCount: courseToRestore.noteCount,
-                  ddlCount: courseToRestore.ddlCount,
-                },
-              ],
-            }
-          : folder
-      )
-    );
+    if (courseToRestore.backendDeleted && courseToRestore.backendId) {
+      try {
+        const restored = await restoreBackendDeletedCourse(courseToRestore.backendId, {
+          folderId: courseToRestore.backendFolderId || null,
+          folderName:
+            courseToRestore.folderTitle ||
+            courseToRestore.folderName ||
+            "恢复的课程",
+        });
+
+        const mappedCourse = mapBackendCourse(restored);
+
+        setFolders((prevFolders) =>
+          placeRestoredBackendCourse(
+            prevFolders,
+            mappedCourse,
+            courseToRestore.folderTitle || courseToRestore.folderName || "恢复的课程"
+          )
+        );
+
+        setBackendCourseMessage("课程已从数据库回收站恢复");
+      } catch (error) {
+        alert(error.message || "后端课程恢复失败");
+        return;
+      }
+    } else {
+      const restoredCourse = {
+        id: courseToRestore.id,
+        title: courseToRestore.title,
+        starred: courseToRestore.starred,
+        noteCount: courseToRestore.noteCount || 0,
+        ddlCount: courseToRestore.ddlCount || 0,
+        backendSynced: false,
+      };
+
+      const targetFolderExists = folders.some(
+        (folder) => String(folder.id) === String(courseToRestore.folderId)
+      );
+
+      if (targetFolderExists) {
+        setFolders(
+          folders.map((folder) =>
+            String(folder.id) === String(courseToRestore.folderId)
+              ? {
+                  ...folder,
+                  courses: [...(folder.courses || []), restoredCourse],
+                }
+              : folder
+          )
+        );
+      } else {
+        setFolders([
+          ...folders,
+          {
+            id: Date.now(),
+            title: courseToRestore.folderTitle || "恢复的课程",
+            courses: [restoredCourse],
+          },
+        ]);
+      }
+    }
 
     setDdls(
       ddls.map((ddl) =>
@@ -405,16 +742,91 @@ function HomePage() {
     );
 
     setDeletedCourses(
-      deletedCourses.filter(  (course) => String(course.id) !== String(courseId)  )
+      deletedCourses.filter(
+        (course) => String(course.id) !== String(courseId)
+      )
     );
   }
 
-  function permanentDeleteCourse(courseId) {
+  async function permanentDeleteCourse(courseId) {
     if (!window.confirm("确定要彻底删除这门课程吗？此操作不可恢复。")) return;
 
-    setDeletedCourses(
-      deletedCourses.filter((course) => course.id !== courseId)
+    const targetCourse = deletedCourses.find(
+      (course) => String(course.id) === String(courseId)
     );
+
+    if (targetCourse?.backendDeleted && targetCourse.backendId) {
+      try {
+        await permanentlyDeleteBackendCourse(targetCourse.backendId);
+        setBackendCourseMessage("课程已从数据库回收站彻底删除");
+      } catch (error) {
+        alert(error.message || "后端课程彻底删除失败");
+        return;
+      }
+    }
+
+    setDeletedCourses(
+      deletedCourses.filter((course) => String(course.id) !== String(courseId))
+    );
+  }
+
+  function openRenameFolderModal(folderId) {
+    const folder = folders.find(
+      (item) => String(item.id) === String(folderId)
+    );
+
+    if (!folder) return;
+
+    setRenamingFolderId(folderId);
+    setRenameFolderName(folder.title || "");
+    setShowFolderRenameModal(true);
+  }
+
+  async function confirmRenameFolder() {
+    const nextTitle = renameFolderName.trim();
+
+    if (!nextTitle || !renamingFolderId) return;
+
+    const folderToRename = folders.find(
+      (folder) => String(folder.id) === String(renamingFolderId)
+    );
+
+    if (!folderToRename) return;
+
+    if (folderToRename.backendSynced && folderToRename.backendId) {
+      try {
+        await updateBackendFolder(folderToRename.backendId, {
+          title: nextTitle,
+        });
+        setBackendCourseMessage("文件夹名称已同步到后端");
+      } catch (error) {
+        alert(error.message || "后端文件夹重命名失败");
+        return;
+      }
+    }
+
+    setFolders(
+      folders.map((folder) =>
+        String(folder.id) === String(renamingFolderId)
+          ? {
+              ...folder,
+              title: nextTitle,
+              courses: (folder.courses || []).map((course) => ({
+                ...course,
+                folderName: nextTitle,
+              })),
+            }
+          : folder
+      )
+    );
+
+    if (selectedFolder === folderToRename.title) {
+      setSelectedFolder(nextTitle);
+    }
+
+    setShowFolderRenameModal(false);
+    setRenamingFolderId(null);
+    setRenameFolderName("");
   }
 
   function requestDeleteFolder(folderId) {
@@ -422,21 +834,41 @@ function HomePage() {
     setShowFolderDeleteConfirm(true);
   }
 
-  function confirmDeleteFolder() {
+  async function confirmDeleteFolder() {
     const folderToDelete = folders.find(
-      (folder) => folder.id === pendingDeleteFolderId
+      (folder) => String(folder.id) === String(pendingDeleteFolderId)
     );
 
     if (!folderToDelete) return;
 
-    const deletedFromFolder = folderToDelete.courses.map((course) => ({
+    const deletedFromFolder = (folderToDelete.courses || []).map((course) => ({
       ...course,
       folderId: folderToDelete.id,
       folderTitle: folderToDelete.title,
+      deletedAt: Date.now(),
+      backendDeleted: Boolean(course.backendSynced),
+      backendFolderId: folderToDelete.backendId || course.backendFolderId || null,
     }));
 
+    if (folderToDelete.backendSynced && folderToDelete.backendId) {
+      try {
+        await deleteBackendFolder(folderToDelete.backendId, {
+          deleteCourses: true,
+        });
+        setBackendCourseMessage("文件夹已从后端删除，课程已进入本地回收站");
+      } catch (error) {
+        alert(error.message || "后端文件夹删除失败");
+        return;
+      }
+    }
+
     setDeletedCourses([...deletedCourses, ...deletedFromFolder]);
-    setFolders(folders.filter((folder) => folder.id !== pendingDeleteFolderId));
+
+    setFolders(
+      folders.filter(
+        (folder) => String(folder.id) !== String(pendingDeleteFolderId)
+      )
+    );
 
     if (selectedFolder === folderToDelete.title) {
       setSelectedFolder("全部");
@@ -456,6 +888,150 @@ function HomePage() {
 
     useEffect(() => {localStorage.setItem( "darkMode", JSON.stringify(darkMode));}, [darkMode]);
 
+  useEffect(() => {
+    let alive = true;
+
+    async function checkBackend() {
+      try {
+        const response = await fetch("http://127.0.0.1:8000/health", {
+          cache: "no-store",
+        });
+
+        if (!alive) return;
+
+        if (response.ok) {
+          setApiStatus({
+            checking: false,
+            online: true,
+            message: "后端连接正常",
+          });
+        } else {
+          setApiStatus({
+            checking: false,
+            online: false,
+            message: "后端暂不可用，当前使用本地模式",
+          });
+        }
+      } catch {
+        if (!alive) return;
+
+        setApiStatus({
+          checking: false,
+          online: false,
+          message: "后端暂不可用，当前使用本地模式",
+        });
+      }
+    }
+
+    checkBackend();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendFolders() {
+      try {
+        const data = await getBackendFolders();
+        if (!alive) return;
+
+        const nextFolders = Array.isArray(data)
+          ? data.map(mapBackendFolder)
+          : [];
+
+        const backendCourseCount = nextFolders.reduce(
+          (sum, folder) => sum + (folder.courses || []).length,
+          0
+        );
+
+        if (nextFolders.length > 0) {
+          setFolders(nextFolders);
+          setBackendCourseMessage(
+            `已同步 ${nextFolders.length} 个文件夹，${backendCourseCount} 门课程`
+          );
+        } else {
+          setBackendCourseMessage("后端暂无文件夹，可新建文件夹同步到数据库");
+        }
+      } catch (error) {
+        if (!alive) return;
+
+        setBackendCourseMessage("后端文件夹暂不可用，继续使用本地课程");
+      }
+    }
+
+    loadBackendFolders();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendTrash() {
+      try {
+        const data = await getBackendDeletedCourses();
+        if (!alive) return;
+
+        const backendTrashCourses = Array.isArray(data)
+          ? data.map(mapBackendDeletedCourse)
+          : [];
+
+        setDeletedCourses((prevCourses) => {
+          const localTrashCourses = prevCourses.filter(
+            (course) => !course.backendDeleted
+          );
+
+          return [...localTrashCourses, ...backendTrashCourses];
+        });
+      } catch {
+        // 后端回收站不可用时继续使用本地回收站。
+      }
+    }
+
+    loadBackendTrash();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendDdls() {
+      try {
+        const data = await getDdls();
+        if (!alive) return;
+
+        const nextBackendDdls = Array.isArray(data) ? data.map(mapBackendDdl) : [];
+
+        if (nextBackendDdls.length > 0) {
+          setDdls(nextBackendDdls);
+          setBackendDdlMessage(`已同步 ${nextBackendDdls.length} 条 DDL`);
+        } else {
+          setBackendDdlMessage("后端暂无 DDL，可新建日程同步到数据库");
+        }
+      } catch (error) {
+        if (!alive) return;
+        setBackendDdlMessage("后端 DDL 暂不可用，继续使用本地 DDL");
+      }
+    }
+
+    loadBackendDdls();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+
 
   const allCourses = folders.flatMap((folder) => folder.courses);
 
@@ -473,6 +1049,25 @@ function HomePage() {
   );
 
   const starredCourses = searchedAllCourses.filter((course) => course.starred);
+
+  const allNotesForSearch = readStorageArray("notes");
+  const allResourcesForSearch = readStorageArray("resources");
+  const noteCount = allNotesForSearch.length;
+  const resourceCount = allResourcesForSearch.length;
+
+  const globalSearchItems = buildGlobalSearchItems({
+    courses: allCourses,
+    notes: allNotesForSearch,
+    resources: allResourcesForSearch,
+    ddls,
+  });
+
+  const currentUser = user || {
+    name: "鲸记用户",
+    role: "学生",
+    account: "本地体验账号",
+    authMode: "local-demo",
+  };
 
   let visibleFolders = searchText ? searchedFolders : folders;
 
@@ -541,6 +1136,7 @@ function HomePage() {
         setShowFolderModal={setShowFolderModal}
         setShowCourseModal={setShowCourseModal}
         darkMode={darkMode}
+        onOpenSettings={() => setShowDataStatus(true)}
       />
 
       <div
@@ -557,6 +1153,10 @@ function HomePage() {
           darkMode={darkMode}
           setDarkMode={setDarkMode}
           upcomingDdls={upcomingDdls}
+          user={currentUser}
+          onLogout={onLogout}
+          onOpenDataStatus={() => setShowDataStatus(true)}
+          searchItems={globalSearchItems}
         />
 
         <div
@@ -643,7 +1243,7 @@ function HomePage() {
                       letterSpacing: "-0.03em",
                     }}
                   >
-                    下午好，Whale
+                    下午好，{currentUser.name || "鲸记用户"}
                   </h1>
 
                   <p
@@ -656,6 +1256,32 @@ function HomePage() {
                   >
                     沉淀课堂知识，让学习真正留下痕迹
                   </p>
+
+                  <button
+                    onClick={() => setShowDataStatus(true)}
+                    style={{
+                      marginTop: "12px",
+                      border: darkMode
+                        ? "1px solid rgba(148,163,184,0.2)"
+                        : "1px solid #DDE8F6",
+                      background: apiStatus.online
+                        ? darkMode
+                          ? "rgba(16,185,129,0.12)"
+                          : "#ECFDF5"
+                        : darkMode
+                        ? "rgba(148,163,184,0.12)"
+                        : "#F8FAFC",
+                      color: apiStatus.online ? "#10B981" : darkMode ? "#CBD5E1" : "#64748B",
+                      borderRadius: "999px",
+                      padding: "7px 12px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {apiStatus.online ? "● 后端在线" : "○ 本地模式"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -694,8 +1320,10 @@ function HomePage() {
                   onRestoreCourse={restoreCourse}
                   onPermanentDeleteCourse={permanentDeleteCourse}
                   onDeleteFolder={requestDeleteFolder}
-                  canAddCourse={typeof folder.id === "number" && !searchText}
-                  canDeleteFolder={typeof folder.id === "number"}
+                  onRenameFolder={openRenameFolderModal}
+                  canAddCourse={!searchText && (isRealFolder(folder) || String(folder.id) === "__unassigned")}
+                  canDeleteFolder={isRealFolder(folder)}
+                  canRenameFolder={isRealFolder(folder)}
                   isTrash={selectedFolder === "回收站"}
                   darkMode={darkMode}
                 />
@@ -731,6 +1359,23 @@ function HomePage() {
         />
       </div>
 
+      {showDataStatus && (
+        <DataStatusModal
+          darkMode={darkMode}
+          user={currentUser}
+          apiStatus={apiStatus}
+          backendCourseMessage={backendCourseMessage}
+          backendDdlMessage={backendDdlMessage}
+          courseCount={allCourses.length}
+          folderCount={folders.length}
+          ddlCount={ddls.length}
+          activeDdlCount={activeDdls.length}
+          noteCount={noteCount}
+          resourceCount={resourceCount}
+          onClose={() => setShowDataStatus(false)}
+        />
+      )}
+
       {showFolderModal && (
         <Modal title="新建文件夹" darkMode={darkMode}>
           <input
@@ -764,11 +1409,14 @@ function HomePage() {
             style={inputStyle}
           >
             <option value="">请选择文件夹</option>
-            {folders.map((folder) => (
-              <option key={folder.id} value={folder.id}>
-                {folder.title}
-              </option>
-            ))}
+            <option value="__unassigned">不归属任何课程</option>
+            {folders
+              .filter((folder) => folder.id !== "__unassigned")
+              .map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
           </select>
 
           <ModalActions
@@ -803,36 +1451,85 @@ function HomePage() {
 
       {showRenameModal && (
         <Modal
-          title="重命名课程"
+          title="编辑课程"
           darkMode={darkMode}
         >
+          <div
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+            }}
+          >
+            课程名称
+          </div>
+
           <input
             value={renameCourseName}
-            onChange={(e) =>
-              setRenameCourseName(
-                e.target.value
-              )
-            }
-            placeholder="请输入新的课程名称"
+            onChange={(e) => setRenameCourseName(e.target.value)}
+            placeholder="请输入课程名称"
+            style={{ ...inputStyle, marginBottom: "14px" }}
+            autoFocus
+          />
+
+          <div
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+            }}
+          >
+            归属文件夹
+          </div>
+
+          <select
+            value={renameCourseFolderId}
+            onChange={(e) => setRenameCourseFolderId(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="__unassigned">不归属任何课程</option>
+            {folders
+              .filter((folder) => folder.id !== "__unassigned")
+              .map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
+          </select>
+
+          <ModalActions
+            onCancel={() => {
+              setShowRenameModal(false);
+              setRenamingCourse(null);
+              setRenameCourseName("");
+              setRenameCourseFolderId("");
+            }}
+            onConfirm={confirmRenameCourse}
+            confirmText="保存修改"
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showFolderRenameModal && (
+        <Modal title="重命名文件夹" darkMode={darkMode}>
+          <input
+            value={renameFolderName}
+            onChange={(e) => setRenameFolderName(e.target.value)}
+            placeholder="请输入新的文件夹名称"
             style={inputStyle}
             autoFocus
           />
 
           <ModalActions
             onCancel={() => {
-              setShowRenameModal(
-                false
-              );
-              setRenamingCourse(
-                null
-              );
-              setRenameCourseName(
-                ""
-              );
+              setShowFolderRenameModal(false);
+              setRenamingFolderId(null);
+              setRenameFolderName("");
             }}
-            onConfirm={
-              confirmRenameCourse
-            }
+            onConfirm={confirmRenameFolder}
             confirmText="保存修改"
             darkMode={darkMode}
           />
@@ -847,7 +1544,7 @@ function HomePage() {
               lineHeight: 1.8,
             }}
           >
-            该课程及其相关笔记将被移动到回收站，你可以之后在回收站中恢复。
+            本地课程会移动到回收站；后端同步课程会进入数据库回收站，可恢复或彻底删除。
           </p>
 
           <ModalActions
@@ -871,7 +1568,7 @@ function HomePage() {
               lineHeight: 1.8,
             }}
           >
-            文件夹内的课程会一起移动到回收站，之后可以单独恢复课程。
+            文件夹会删除；其中课程会进入回收站。后端同步课程也会进入数据库回收站。
           </p>
 
           <ModalActions
@@ -888,6 +1585,495 @@ function HomePage() {
       )}
     </div>
   );
+}
+
+
+function isRealFolder(folder) {
+  return !["all", "starred", "trash", "recent", "__unassigned"].includes(
+    String(folder.id)
+  );
+}
+
+function addCourseToUnassignedFolder(folders = [], course) {
+  const hasUnassigned = folders.some(
+    (folder) => String(folder.id) === "__unassigned"
+  );
+
+  if (hasUnassigned) {
+    return folders.map((folder) =>
+      String(folder.id) === "__unassigned"
+        ? {
+            ...folder,
+            courses: [...(folder.courses || []), course],
+          }
+        : folder
+    );
+  }
+
+  return [
+    ...folders,
+    {
+      id: "__unassigned",
+      backendId: null,
+      title: "未归属课程",
+      createdAt: Date.now(),
+      backendSynced: true,
+      courses: [course],
+    },
+  ];
+}
+
+function mapBackendFolder(folder) {
+  if (folder.id === null || folder.id === undefined) {
+    return {
+      id: "__unassigned",
+      backendId: null,
+      title: folder.title || "未归属课程",
+      createdAt: folder.createdAt || Date.now(),
+      backendSynced: true,
+      courses: (folder.courses || []).map(mapBackendCourse),
+    };
+  }
+
+  return {
+    id: `api-folder-${folder.id}`,
+    backendId: folder.id,
+    title: folder.title,
+    createdAt: folder.createdAt || Date.now(),
+    backendSynced: true,
+    courses: (folder.courses || []).map(mapBackendCourse),
+  };
+}
+
+function mapBackendCourse(course) {
+  return {
+    id: `api-${course.id}`,
+    backendId: course.id,
+    title: course.title,
+    starred: Boolean(course.starred),
+    noteCount: 0,
+    ddlCount: 0,
+    folderId: course.folderId ? `api-folder-${course.folderId}` : null,
+    backendFolderId: course.folderId || null,
+    folderName: course.folderName || "",
+    backendSynced: true,
+  };
+}
+
+
+
+function mapBackendDeletedCourse(course) {
+  return {
+    id: `api-${course.id}`,
+    backendId: course.id,
+    title: course.title,
+    starred: Boolean(course.starred),
+    noteCount: 0,
+    ddlCount: 0,
+    folderId: course.deletedFolderId
+      ? `api-folder-${course.deletedFolderId}`
+      : course.folderId
+      ? `api-folder-${course.folderId}`
+      : null,
+    folderTitle: course.deletedFolderTitle || course.folderName || "恢复的课程",
+    backendFolderId: course.deletedFolderId || course.folderId || null,
+    folderName: course.deletedFolderTitle || course.folderName || "",
+    backendSynced: true,
+    backendDeleted: true,
+    deletedAt: course.deletedAt || Date.now(),
+  };
+}
+
+function placeRestoredBackendCourse(folders = [], course, fallbackFolderTitle = "恢复的课程") {
+  if (!course.backendFolderId) {
+    return addCourseToUnassignedFolder(folders, course);
+  }
+
+  const targetFolderId = `api-folder-${course.backendFolderId}`;
+  let placed = false;
+
+  const nextFolders = folders.map((folder) => {
+    const sameFolder =
+      String(folder.id) === String(targetFolderId) ||
+      String(folder.backendId || "") === String(course.backendFolderId);
+
+    if (!sameFolder) return folder;
+
+    placed = true;
+
+    return {
+      ...folder,
+      id: targetFolderId,
+      backendId: course.backendFolderId,
+      backendSynced: true,
+      title: course.folderName || folder.title || fallbackFolderTitle,
+      courses: [
+        ...(folder.courses || []).filter(
+          (item) => String(item.id) !== String(course.id)
+        ),
+        course,
+      ],
+    };
+  });
+
+  if (!placed) {
+    nextFolders.push({
+      id: targetFolderId,
+      backendId: course.backendFolderId,
+      title: course.folderName || fallbackFolderTitle,
+      createdAt: Date.now(),
+      backendSynced: true,
+      courses: [course],
+    });
+  }
+
+  return nextFolders;
+}
+
+function mapBackendDdl(ddl) {
+  return {
+    ...ddl,
+    id: `api-ddl-${ddl.id}`,
+    backendId: ddl.id,
+    courseId: ddl.courseId ? `api-${ddl.courseId}` : null,
+    backendCourseId: ddl.courseId || null,
+    courseName: ddl.courseName || "未归属课程",
+    platform: ddl.platform || "",
+    note: ddl.note || "",
+    completed: Boolean(ddl.completed),
+    source: ddl.source || "后端同步",
+    backendSynced: true,
+  };
+}
+
+
+function DataStatusModal({
+  darkMode,
+  user,
+  apiStatus,
+  backendCourseMessage,
+  backendDdlMessage,
+  courseCount,
+  folderCount,
+  ddlCount,
+  activeDdlCount,
+  noteCount,
+  resourceCount,
+  onClose,
+}) {
+  const colors = {
+    panel: darkMode ? "#1E293B" : "#FFFFFF",
+    card: darkMode ? "rgba(15,23,42,0.55)" : "#F8FAFC",
+    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2E8F0",
+    title: darkMode ? "#F8FAFC" : "#183B63",
+    text: darkMode ? "#CBD5E1" : "#64748B",
+    muted: darkMode ? "#94A3B8" : "#94A3B8",
+    active: darkMode ? "#818CF8" : "#2563EB",
+    success: "#10B981",
+    warning: "#F59E0B",
+  };
+
+  const storageMode = apiStatus.online ? "API 可连接 / 本地兼容" : "本地存储模式";
+  const syncText = apiStatus.online ? "后端连接正常，可进入接口接入阶段" : "后端未启动，数据暂存浏览器 localStorage";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: darkMode ? "rgba(0,0,0,0.52)" : "rgba(15,42,74,0.18)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          width: "720px",
+          maxWidth: "calc(100vw - 40px)",
+          background: colors.panel,
+          border: `1px solid ${colors.border}`,
+          borderRadius: "18px",
+          padding: "26px",
+          boxShadow: darkMode
+            ? "0 28px 60px rgba(0,0,0,0.45)"
+            : "0 24px 48px rgba(15,42,74,0.16)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "20px",
+            alignItems: "flex-start",
+            marginBottom: "22px",
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                color: colors.title,
+                fontSize: "26px",
+                fontWeight: 800,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              系统设置
+            </h2>
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: colors.text,
+                fontSize: "14px",
+                lineHeight: 1.7,
+              }}
+            >
+              查看账号入口、数据沉淀、存储方式与后端接入状态。
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: colors.card,
+              color: colors.text,
+              width: "36px",
+              height: "36px",
+              borderRadius: "10px",
+              cursor: "pointer",
+              fontSize: "22px",
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "16px",
+            marginBottom: "16px",
+          }}
+        >
+          <StatusPanel colors={colors} title="当前用户">
+            <InfoLine colors={colors} label="昵称" value={user?.name || "鲸记用户"} />
+            <InfoLine colors={colors} label="身份" value={user?.role || "学生"} />
+            <InfoLine colors={colors} label="账号" value={user?.account || user?.email || "本地体验账号"} />
+          </StatusPanel>
+
+          <StatusPanel colors={colors} title="同步状态">
+            <InfoLine
+              colors={colors}
+              label="后端状态"
+              value={apiStatus.online ? "在线" : "离线"}
+              tone={apiStatus.online ? colors.success : colors.warning}
+            />
+            <InfoLine colors={colors} label="存储模式" value={storageMode} />
+            <InfoLine colors={colors} label="课程同步" value={backendCourseMessage || "等待同步课程"} />
+            <InfoLine colors={colors} label="DDL同步" value={backendDdlMessage || "等待同步 DDL"} />
+            <InfoLine colors={colors} label="说明" value={syncText} />
+          </StatusPanel>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+            gap: "12px",
+            marginBottom: "16px",
+          }}
+        >
+          <StatBlock colors={colors} label="文件夹" value={folderCount} />
+          <StatBlock colors={colors} label="课程" value={courseCount} />
+          <StatBlock colors={colors} label="资料" value={resourceCount} />
+          <StatBlock colors={colors} label="笔记" value={noteCount} />
+          <StatBlock colors={colors} label="DDL" value={ddlCount} />
+          <StatBlock colors={colors} label="待办" value={activeDdlCount} />
+        </div>
+
+        <div
+          style={{
+            background: colors.card,
+            border: `1px solid ${colors.border}`,
+            borderRadius: "14px",
+            padding: "16px",
+            color: colors.text,
+            fontSize: "14px",
+            lineHeight: 1.8,
+          }}
+        >
+          当前版本已完成轻量登录入口、课程空间、资料记录、笔记编辑与 DDL 管理。
+          后续接入 API 后，localStorage 将逐步替换为数据库与文件上传接口，实现真实多用户数据同步。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusPanel({ colors, title, children }) {
+  return (
+    <div
+      style={{
+        background: colors.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: "14px",
+        padding: "16px",
+        minWidth: 0,
+      }}
+    >
+      <h3
+        style={{
+          margin: "0 0 12px",
+          color: colors.title,
+          fontSize: "16px",
+          fontWeight: 800,
+        }}
+      >
+        {title}
+      </h3>
+      <div style={{ display: "grid", gap: "9px" }}>{children}</div>
+    </div>
+  );
+}
+
+function InfoLine({ colors, label, value, tone }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: "12px",
+        color: colors.text,
+        fontSize: "13px",
+      }}
+    >
+      <span style={{ flexShrink: 0 }}>{label}</span>
+      <strong
+        style={{
+          color: tone || colors.title,
+          textAlign: "right",
+          fontWeight: 800,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+function StatBlock({ colors, label, value }) {
+  return (
+    <div
+      style={{
+        background: colors.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: "14px",
+        padding: "14px 10px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          color: colors.title,
+          fontSize: "22px",
+          fontWeight: 900,
+          letterSpacing: "-0.04em",
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ color: colors.muted, fontSize: "12px", marginTop: "5px" }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+
+function buildGlobalSearchItems({ courses = [], notes = [], resources = [], ddls = [] }) {
+  const courseTitleById = new Map(courses.map((course) => [String(course.id), course.title]));
+  const courseIdByTitle = new Map(courses.map((course) => [course.title, course.id]));
+
+  const courseItems = courses.map((course) => ({
+    key: `course-${course.id}`,
+    type: "course",
+    typeLabel: "课程",
+    title: course.title,
+    subtitle: "课程空间 · 资料 / 笔记 / DDL",
+    content: course.title,
+    path: `/course/${course.id}`,
+  }));
+
+  const noteItems = notes.map((note) => {
+    const courseId = note.courseId || courseIdByTitle.get(note.courseName);
+    const courseTitle = note.courseName || courseTitleById.get(String(courseId)) || "未归属课程";
+
+    return {
+      key: `note-${note.id}`,
+      type: "note",
+      typeLabel: "笔记",
+      title: note.title || "未命名笔记",
+      subtitle: `${courseTitle} · ${createSnippet(note.content) || "笔记正文"}`,
+      content: `${note.title || ""} ${courseTitle} ${note.content || ""}`,
+      path: courseId ? `/course/${courseId}/note/${note.id}` : "/",
+    };
+  });
+
+  const resourceItems = resources.map((resource) => {
+    const courseId = resource.courseId || courseIdByTitle.get(resource.courseName);
+    const courseTitle = resource.courseName || courseTitleById.get(String(courseId)) || "未归属课程";
+
+    return {
+      key: `resource-${resource.id}`,
+      type: "resource",
+      typeLabel: "文件",
+      title: resource.name || "未命名资料",
+      subtitle: `${courseTitle} · ${resource.type || "资料"}`,
+      content: `${resource.name || ""} ${courseTitle} ${resource.type || ""}`,
+      path: courseId ? `/course/${courseId}` : "/",
+    };
+  });
+
+  const ddlItems = ddls.map((ddl) => {
+    const courseTitle = ddl.courseName || "未归属课程";
+
+    return {
+      key: `ddl-${ddl.id}`,
+      type: "ddl",
+      typeLabel: "DDL",
+      title: ddl.title || "未命名 DDL",
+      subtitle: `${courseTitle} · ${ddl.date || "未设置时间"}`,
+      content: `${ddl.title || ""} ${courseTitle} ${ddl.date || ""} ${ddl.platform || ""} ${ddl.note || ""}`,
+      path: "/ddl",
+    };
+  });
+
+  return [...courseItems, ...noteItems, ...resourceItems, ...ddlItems];
+}
+
+function createSnippet(text = "") {
+  return String(text)
+    .replace(/[#>*_`$\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 52);
+}
+
+function readStorageArray(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
 }
 
 const inputStyle = {

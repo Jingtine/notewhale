@@ -1,19 +1,32 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Footer from "../components/Footer";
+import {
+  getDdls as getBackendDdls,
+  createDdl as createBackendDdl,
+  updateDdl as updateBackendDdl,
+  deleteDdl as deleteBackendDdl,
+} from "../api/ddlApi";
+import { getFolders as getBackendFolders } from "../api/folderApi";
 
 function DDLPage() {
   const navigate = useNavigate();
+
+  const [backendOnline, setBackendOnline] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("正在同步 DDL");
 
   const [ddls, setDdls] = useState(() =>
     JSON.parse(localStorage.getItem("ddls") || "[]")
   );
 
-  const folders = JSON.parse(
-    localStorage.getItem("courseFolders") ||
-      localStorage.getItem("folders") ||
-      "[]"
+  const [folders, setFolders] = useState(() =>
+    JSON.parse(
+      localStorage.getItem("courseFolders") ||
+        localStorage.getItem("folders") ||
+        "[]"
+    )
   );
+
   const courses = folders.flatMap(
     (folder) => folder.courses || folder.items || []
   );
@@ -37,14 +50,55 @@ function DDLPage() {
   const [newNote, setNewNote] = useState("");
   const [newPreview, setNewPreview] = useState("");
 
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendData() {
+      try {
+        const [folderData, ddlData] = await Promise.all([
+          getBackendFolders(),
+          getBackendDdls(),
+        ]);
+
+        if (!alive) return;
+
+        const nextFolders = Array.isArray(folderData)
+          ? folderData.map(mapBackendFolder)
+          : [];
+
+        const nextDdls = Array.isArray(ddlData)
+          ? ddlData.map(mapBackendDdl)
+          : [];
+
+        setFolders(nextFolders);
+        setDdls(nextDdls);
+        setBackendOnline(true);
+        setSyncMessage(`已同步 ${nextDdls.length} 条 DDL`);
+      } catch {
+        if (!alive) return;
+
+        setBackendOnline(false);
+        setSyncMessage("后端暂不可用，当前使用本地 DDL");
+      }
+    }
+
+    loadBackendData();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   function saveDdls(nextDdls) {
     setDdls(nextDdls);
-    localStorage.setItem("ddls", JSON.stringify(nextDdls));
+
+    const localOnlyDdls = nextDdls.filter((ddl) => !ddl.backendSynced);
+    localStorage.setItem("ddls", JSON.stringify(localOnlyDdls));
   }
 
   function parseDate(date) {
     if (!date) return new Date("");
-    return new Date(date.replace(" ", "T"));
+    return new Date(String(date).replace(" ", "T"));
   }
 
   const filteredDdls = useMemo(() => {
@@ -115,28 +169,61 @@ function DDLPage() {
     return { text: `剩余 ${days} 天`, color: "#10B981" };
   }
 
-  function completeDDL(id) {
-    const nextDdls = ddls.map((ddl) =>
-      ddl.id === id ? { ...ddl, completed: true } : ddl
+  async function completeDDL(id) {
+    const target = ddls.find((ddl) => String(ddl.id) === String(id));
+    if (!target) return;
+
+    if (target.backendSynced && target.backendId) {
+      try {
+        const updated = await updateBackendDdl(target.backendId, {
+          completed: true,
+        });
+
+        saveDdls(
+          ddls.map((ddl) =>
+            String(ddl.id) === String(id) ? mapBackendDdl(updated) : ddl
+          )
+        );
+        return;
+      } catch (error) {
+        alert(error.message || "后端 DDL 更新失败");
+        return;
+      }
+    }
+
+    saveDdls(
+      ddls.map((ddl) =>
+        String(ddl.id) === String(id) ? { ...ddl, completed: true } : ddl
+      )
     );
-
-    saveDdls(nextDdls);
   }
 
-  function deleteDDL(id) {
+  async function deleteDDL(id) {
     if (!window.confirm("确定要删除这个 DDL 吗？")) return;
-    saveDdls(ddls.filter((ddl) => ddl.id !== id));
+
+    const target = ddls.find((ddl) => String(ddl.id) === String(id));
+    if (!target) return;
+
+    if (target.backendSynced && target.backendId) {
+      try {
+        await deleteBackendDdl(target.backendId);
+      } catch (error) {
+        alert(error.message || "后端 DDL 删除失败");
+        return;
+      }
+    }
+
+    saveDdls(ddls.filter((ddl) => String(ddl.id) !== String(id)));
   }
 
-  function addDDL() {
+  async function addDDL() {
     if (!newTitle.trim() || !newDate.trim()) return;
 
     const selectedCourse = courses.find(
       (course) => String(course.id) === String(newCourseId)
     );
 
-    const nextDDL = {
-      id: Date.now(),
+    const baseDDL = {
       title: newTitle.trim(),
       date: newDate.replace("T", " "),
       platform: newPlatform.trim(),
@@ -145,6 +232,28 @@ function DDLPage() {
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       completed: false,
       source: newPreview ? "图片识别" : "手动新建",
+    };
+
+    if (backendOnline) {
+      try {
+        const saved = await createBackendDdl({
+          ...baseDDL,
+          courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
+          courseName: baseDDL.courseName,
+        });
+
+        saveDdls([mapBackendDdl(saved), ...ddls]);
+        setSyncMessage("DDL 已保存到数据库");
+        resetAddDDLModal();
+        return;
+      } catch (error) {
+        alert(error.message || "后端 DDL 创建失败，已改为本地保存");
+      }
+    }
+
+    const nextDDL = {
+      id: Date.now(),
+      ...baseDDL,
     };
 
     saveDdls([...ddls, nextDDL]);
@@ -192,29 +301,57 @@ function DDLPage() {
     setShowEditModal(true);
   }
 
-  function confirmEditDDL() {
+  async function confirmEditDDL() {
     if (!editingDDL || !editTitle.trim() || !editDate.trim()) return;
 
     const selectedCourse = courses.find(
       (course) => String(course.id) === String(editCourseId)
     );
 
+    const nextPayload = {
+      title: editTitle.trim(),
+      date: editDate.replace("T", " "),
+      courseId: selectedCourse ? selectedCourse.id : null,
+      courseName: selectedCourse ? selectedCourse.title : "未归属课程",
+      platform: editPlatform.trim(),
+      note: editNote.trim(),
+    };
+
+    if (editingDDL.backendSynced && editingDDL.backendId) {
+      try {
+        const updated = await updateBackendDdl(editingDDL.backendId, {
+          ...nextPayload,
+          courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
+          courseName: nextPayload.courseName,
+        });
+
+        saveDdls(
+          ddls.map((ddl) =>
+            String(ddl.id) === String(editingDDL.id) ? mapBackendDdl(updated) : ddl
+          )
+        );
+        closeEditModal();
+        return;
+      } catch (error) {
+        alert(error.message || "后端 DDL 修改失败");
+        return;
+      }
+    }
+
     const nextDdls = ddls.map((ddl) =>
-      ddl.id === editingDDL.id
+      String(ddl.id) === String(editingDDL.id)
         ? {
             ...ddl,
-            title: editTitle.trim(),
-            date: editDate.replace("T", " "),
-            courseId: selectedCourse ? selectedCourse.id : null,
-            courseName: selectedCourse ? selectedCourse.title : "未归属课程",
-            platform: editPlatform.trim(),
-            note: editNote.trim(),
+            ...nextPayload,
           }
         : ddl
     );
 
     saveDdls(nextDdls);
+    closeEditModal();
+  }
 
+  function closeEditModal() {
     setShowEditModal(false);
     setEditingDDL(null);
     setEditTitle("");
@@ -294,7 +431,17 @@ function DDLPage() {
                 fontSize: "15px",
               }}
             >
-              共 {filteredDdls.length} 项
+              共 {filteredDdls.length} 项 · {backendOnline ? "数据库同步" : "本地模式"}
+            </p>
+
+            <p
+              style={{
+                margin: "6px 0 0",
+                color: colors.muted,
+                fontSize: "13px",
+              }}
+            >
+              {syncMessage}
             </p>
           </div>
 
@@ -548,15 +695,7 @@ function DDLPage() {
             courseId={editCourseId}
             setCourseId={setEditCourseId}
             courses={courses}
-            onCancel={() => {
-              setShowEditModal(false);
-              setEditingDDL(null);
-              setEditTitle("");
-              setEditDate("");
-              setEditCourseId("");
-              setEditPlatform("");
-              setEditNote("");
-            }}
+            onCancel={closeEditModal}
             onConfirm={confirmEditDDL}
             confirmText="保存修改"
           />
@@ -816,6 +955,51 @@ function DDLModal({
       </div>
     </div>
   );
+}
+
+function mapBackendFolder(folder) {
+  return {
+    id: folder.id === null || folder.id === undefined
+      ? "__unassigned"
+      : `api-folder-${folder.id}`,
+    backendId: folder.id,
+    title: folder.title || "未归属课程",
+    backendSynced: folder.id !== null && folder.id !== undefined,
+    courses: Array.isArray(folder.courses)
+      ? folder.courses.map(mapBackendCourse)
+      : [],
+  };
+}
+
+function mapBackendCourse(course) {
+  return {
+    id: `api-${course.id}`,
+    backendId: course.id,
+    title: course.title,
+    starred: Boolean(course.starred),
+    folderId: course.folderId ? `api-folder-${course.folderId}` : "__unassigned",
+    backendFolderId: course.folderId || null,
+    folderName: course.folderName || "",
+    noteCount: 0,
+    ddlCount: 0,
+    backendSynced: true,
+  };
+}
+
+function mapBackendDdl(ddl) {
+  return {
+    ...ddl,
+    id: `api-ddl-${ddl.id}`,
+    backendId: ddl.id,
+    courseId: ddl.courseId ? `api-${ddl.courseId}` : null,
+    backendCourseId: ddl.courseId || null,
+    courseName: ddl.courseName || "未归属课程",
+    platform: ddl.platform || "",
+    note: ddl.note || "",
+    completed: Boolean(ddl.completed),
+    source: ddl.source || "后端同步",
+    backendSynced: true,
+  };
 }
 
 function SmallLabel({ colors, children }) {

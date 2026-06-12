@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function CourseCard({
   id,
@@ -17,11 +17,45 @@ function CourseCard({
 }) {
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
+  const [realStats, setRealStats] = useState({
+    notes: noteCount ?? 0,
+    ddls: ddlCount ?? 0,
+  });
 
-  function handleOpenCourse() {
-    if (!isTrash) {
-      navigate(`/course/${id}`);
+  useEffect(() => {
+    function refreshStats() {
+      const notes = safeParse("notes");
+      const ddls = safeParse("ddls");
+
+      const realNoteCount = notes.filter(
+        (note) => String(note.courseId) === String(id)
+      ).length;
+
+      const realDDLCount = ddls.filter(
+        (ddl) => String(ddl.courseId) === String(id) && !ddl.completed
+      ).length;
+
+      setRealStats({
+        notes: realNoteCount,
+        ddls: realDDLCount,
+      });
     }
+
+    refreshStats();
+
+    window.addEventListener("focus", refreshStats);
+    window.addEventListener("storage", refreshStats);
+
+    return () => {
+      window.removeEventListener("focus", refreshStats);
+      window.removeEventListener("storage", refreshStats);
+    };
+  }, [id, noteCount, ddlCount]);
+
+  function handleOpenCourse(e) {
+    if (isTrash) return;
+    e.stopPropagation();
+    navigate(`/course/${String(id)}`);
   }
 
   const theme = darkMode
@@ -133,7 +167,7 @@ function CourseCard({
                 position: "absolute",
                 top: "30px",
                 right: 0,
-                width: "126px",
+                width: "138px",
                 background: theme.menuBg,
                 border: `1px solid ${theme.menuBorder}`,
                 borderRadius: "12px",
@@ -148,7 +182,6 @@ function CourseCard({
                 onClick={() => {
                   onRename?.(id, title);
                   setShowMenu(false);
-
                 }}
                 style={{
                   padding: "11px 14px",
@@ -157,7 +190,7 @@ function CourseCard({
                   fontSize: "13px",
                 }}
               >
-                重命名
+                编辑课程
               </div>
 
               <div
@@ -222,7 +255,7 @@ function CourseCard({
             fontWeight: 500,
           }}
         >
-          笔记 {noteCount ?? 0}
+          笔记 {realStats.notes}
         </div>
 
         <div
@@ -235,7 +268,7 @@ function CourseCard({
             fontWeight: 500,
           }}
         >
-          DDL {ddlCount ?? 0}
+          DDL {realStats.ddls}
         </div>
       </div>
 
@@ -288,6 +321,14 @@ function CourseCard({
       )}
     </div>
   );
+}
+
+function safeParse(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 export default CourseCard;

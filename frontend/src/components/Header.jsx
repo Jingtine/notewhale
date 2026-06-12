@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function Header({
   searchText,
@@ -6,11 +7,23 @@ function Header({
   darkMode,
   setDarkMode,
   upcomingDdls = [],
+  user = null,
+  onLogout,
+  onOpenDataStatus,
+  searchItems = [],
 }) {
+  const navigate = useNavigate();
   const inputRef = useRef(null);
+  const searchBoxRef = useRef(null);
 
   const [showNotice, setShowNotice] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+
+  const displayName = user?.name || "鲸记用户";
+  const role = user?.role || "学生";
+  const account = user?.account || user?.email || "本地体验账号";
+  const avatarText = (user?.avatar || displayName || "鲸").slice(0, 1).toUpperCase();
 
   const validUpcomingDdls = upcomingDdls.filter((ddl) => {
     if (ddl.completed) return false;
@@ -21,11 +34,29 @@ function Header({
     return !Number.isNaN(ddlDate.getTime()) && ddlDate >= now;
   });
 
+  const keyword = (searchText || "").trim().toLowerCase();
+
+  const filteredSearchItems = useMemo(() => {
+    if (!keyword) return [];
+
+    return searchItems
+      .filter((item) => {
+        const text = [item.title, item.subtitle, item.content, item.typeLabel]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return text.includes(keyword);
+      })
+      .slice(0, 9);
+  }, [keyword, searchItems]);
+
   useEffect(() => {
     function handleKeyDown(e) {
       if (e.ctrlKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         inputRef.current?.focus();
+        setShowSearchPanel(true);
       }
     }
 
@@ -34,11 +65,21 @@ function Header({
   }, []);
 
   useEffect(() => {
+    function handlePointerDown(e) {
+      if (!searchBoxRef.current?.contains(e.target)) {
+        setShowSearchPanel(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
     const hasShown = sessionStorage.getItem("notewhale_ddl_notice_shown");
 
     if (!hasShown && validUpcomingDdls.length > 0) {
       setShowNotice(true);
-
       sessionStorage.setItem("notewhale_ddl_notice_shown", "true");
     }
   }, [validUpcomingDdls.length]);
@@ -47,6 +88,7 @@ function Header({
     ? {
         bg: "rgba(15,23,42,0.72)",
         border: "1px solid rgba(148,163,184,0.08)",
+        strongBorder: "1px solid rgba(148,163,184,0.18)",
         card: "rgba(30,41,59,0.85)",
         input: "rgba(30,41,59,0.78)",
         text: "#F8FAFC",
@@ -54,10 +96,13 @@ function Header({
         accent: "#818CF8",
         panel: "#1E293B",
         item: "#0F172A",
+        soft: "rgba(148,163,184,0.12)",
+        dangerSoft: "rgba(239,68,68,0.12)",
       }
     : {
         bg: "rgba(255,255,255,0.86)",
         border: "1px solid rgba(226,232,240,0.9)",
+        strongBorder: "1px solid #E2E8F0",
         card: "rgba(255,255,255,0.9)",
         input: "#FFFFFF",
         text: "#183B63",
@@ -65,7 +110,39 @@ function Header({
         accent: "#2563EB",
         panel: "#FFFFFF",
         item: "#F8FAFC",
+        soft: "#F1F6FF",
+        dangerSoft: "#FEF2F2",
       };
+
+  function handleLogoutClick() {
+    setShowUserMenu(false);
+    onLogout?.();
+  }
+
+  function handleOpenDataStatus() {
+    setShowUserMenu(false);
+    onOpenDataStatus?.();
+  }
+
+  function openSearchResult(item) {
+    if (!item?.path) return;
+
+    setShowSearchPanel(false);
+    setSearchText?.("");
+    navigate(item.path);
+  }
+
+  function handleSearchKeyDown(e) {
+    if (e.key === "Escape") {
+      setShowSearchPanel(false);
+      inputRef.current?.blur();
+    }
+
+    if (e.key === "Enter" && filteredSearchItems.length > 0) {
+      e.preventDefault();
+      openSearchResult(filteredSearchItems[0]);
+    }
+  }
 
   return (
     <header
@@ -83,36 +160,65 @@ function Header({
         zIndex: 50,
       }}
     >
-      <div
-        style={{
-          width: "540px",
-          height: "46px",
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          borderRadius: "16px",
-          background: theme.input,
-          border: theme.border,
-          padding: "0 18px",
-        }}
-      >
-        <span style={{ color: theme.subText }}>⌕</span>
-
-        <input
-          ref={inputRef}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          placeholder="搜索课程、笔记、文件..."
+      <div ref={searchBoxRef} style={{ position: "relative", zIndex: 1000 }}>
+        <div
           style={{
-            flex: 1,
-            border: "none",
-            outline: "none",
-            background: "transparent",
-            color: theme.text,
-            fontSize: "14px",
-            fontFamily: "inherit",
+            width: "min(540px, 46vw)",
+            height: "46px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            borderRadius: "14px",
+            background: theme.input,
+            border: theme.border,
+            padding: "0 18px",
           }}
-        />
+        >
+          <span style={{ color: theme.subText }}>⌕</span>
+
+          <input
+            ref={inputRef}
+            value={searchText}
+            onFocus={() => setShowSearchPanel(true)}
+            onKeyDown={handleSearchKeyDown}
+            onChange={(e) => {
+              setSearchText(e.target.value);
+              setShowSearchPanel(true);
+            }}
+            placeholder="搜索课程、笔记、文件、DDL..."
+            style={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              color: theme.text,
+              fontSize: "14px",
+              fontFamily: "inherit",
+            }}
+          />
+
+          <span
+            style={{
+              color: theme.subText,
+              fontSize: "12px",
+              background: theme.soft,
+              borderRadius: "8px",
+              padding: "4px 7px",
+            }}
+          >
+            Ctrl K
+          </span>
+        </div>
+
+        {showSearchPanel && (
+          <SearchDropdown
+            theme={theme}
+            darkMode={darkMode}
+            keyword={keyword}
+            items={filteredSearchItems}
+            onOpen={openSearchResult}
+          />
+        )}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
@@ -168,19 +274,21 @@ function Header({
               width: "34px",
               height: "34px",
               borderRadius: "50%",
-              background: "linear-gradient(135deg,#6366F1,#4F46E5)",
+              background: "linear-gradient(135deg,#6366F1,#2563EB)",
               color: "white",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "14px",
             }}
           >
-            W
+            {avatarText}
           </div>
 
-          <span style={{ color: theme.text, fontSize: "14px" }}>Whale</span>
+          <span style={{ color: theme.text, fontSize: "14px", fontWeight: 700 }}>
+            {displayName}
+          </span>
           <span style={{ color: theme.subText, fontSize: "12px" }}>⌄</span>
         </div>
       </div>
@@ -193,8 +301,8 @@ function Header({
             right: "112px",
             width: "320px",
             background: theme.panel,
-            border: theme.border,
-            borderRadius: "18px",
+            border: theme.strongBorder,
+            borderRadius: "16px",
             padding: "18px",
             boxShadow: darkMode
               ? "0 24px 48px rgba(0,0,0,0.38)"
@@ -207,7 +315,7 @@ function Header({
               margin: 0,
               color: theme.text,
               fontSize: "17px",
-              fontWeight: 600,
+              fontWeight: 700,
             }}
           >
             近一周 DDL 提醒
@@ -228,19 +336,13 @@ function Header({
               近一周暂无 DDL。
             </div>
           ) : (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-              }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {validUpcomingDdls.map((ddl) => (
                 <div
                   key={ddl.id}
                   style={{
                     padding: "12px",
-                    borderRadius: "14px",
+                    borderRadius: "12px",
                     background: theme.item,
                     border: theme.border,
                   }}
@@ -249,7 +351,7 @@ function Header({
                     style={{
                       color: theme.text,
                       fontSize: "14px",
-                      fontWeight: 600,
+                      fontWeight: 700,
                       marginBottom: "6px",
                     }}
                   >
@@ -283,34 +385,264 @@ function Header({
             position: "absolute",
             top: "66px",
             right: "26px",
-            width: "170px",
+            width: "260px",
             background: theme.panel,
-            border: theme.border,
+            border: theme.strongBorder,
             borderRadius: "16px",
-            padding: "10px",
+            padding: "12px",
             boxShadow: darkMode
               ? "0 18px 36px rgba(0,0,0,0.28)"
               : "0 18px 36px rgba(15,42,74,0.12)",
             zIndex: 999,
           }}
         >
-          {["个人资料", "账号设置", "退出登录"].map((item) => (
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              alignItems: "center",
+              padding: "8px 8px 14px",
+              borderBottom: theme.strongBorder,
+              marginBottom: "8px",
+            }}
+          >
             <div
-              key={item}
               style={{
-                padding: "10px 12px",
-                borderRadius: "10px",
-                cursor: "pointer",
-                color: item === "退出登录" ? "#DC2626" : theme.text,
-                fontSize: "14px",
+                width: "42px",
+                height: "42px",
+                borderRadius: "50%",
+                background: "linear-gradient(135deg,#6366F1,#2563EB)",
+                color: "white",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
               }}
             >
-              {item}
+              {avatarText}
             </div>
-          ))}
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: theme.text,
+                  fontSize: "15px",
+                  fontWeight: 800,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {displayName}
+              </div>
+              <div
+                style={{
+                  color: theme.subText,
+                  fontSize: "12px",
+                  marginTop: "4px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {role} · {account}
+              </div>
+            </div>
+          </div>
+
+          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
+            数据状态
+          </MenuItem>
+          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
+            同步与存储
+          </MenuItem>
+          <MenuItem theme={theme} muted>
+            账号设置 · 后续接入
+          </MenuItem>
+
+          <button
+            onClick={handleLogoutClick}
+            style={{
+              width: "100%",
+              marginTop: "8px",
+              border: "none",
+              borderRadius: "10px",
+              padding: "11px 12px",
+              background: theme.dangerSoft,
+              color: "#DC2626",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: 700,
+              textAlign: "left",
+              fontFamily: "inherit",
+            }}
+          >
+            退出登录
+          </button>
         </div>
       )}
     </header>
+  );
+}
+
+function SearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "56px",
+        left: 0,
+        width: "min(620px, 58vw)",
+        background: theme.panel,
+        border: theme.strongBorder,
+        borderRadius: "16px",
+        padding: "12px",
+        boxShadow: darkMode
+          ? "0 24px 50px rgba(0,0,0,0.38)"
+          : "0 20px 46px rgba(15,42,74,0.14)",
+      }}
+    >
+      <div
+        style={{
+          color: theme.subText,
+          fontSize: "12px",
+          padding: "4px 6px 10px",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "12px",
+        }}
+      >
+        <span>全局搜索</span>
+        <span>{keyword ? `${items.length} 条结果` : "课程 / 笔记 / 文件 / DDL"}</span>
+      </div>
+
+      {!keyword && (
+        <div
+          style={{
+            padding: "18px 14px",
+            borderRadius: "12px",
+            background: theme.item,
+            color: theme.subText,
+            fontSize: "14px",
+            lineHeight: 1.7,
+            border: theme.border,
+          }}
+        >
+          输入关键词后，可同时搜索课程、笔记正文、资料文件名和 DDL。按 Enter 可打开第一条结果。
+        </div>
+      )}
+
+      {keyword && items.length === 0 && (
+        <div
+          style={{
+            padding: "18px 14px",
+            borderRadius: "12px",
+            background: theme.item,
+            color: theme.subText,
+            fontSize: "14px",
+            border: theme.border,
+          }}
+        >
+          没有找到相关内容。
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div style={{ display: "grid", gap: "8px", maxHeight: "430px", overflowY: "auto" }}>
+          {items.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => onOpen(item)}
+              style={{
+                width: "100%",
+                border: "none",
+                background: theme.item,
+                borderRadius: "12px",
+                padding: "12px",
+                cursor: "pointer",
+                display: "grid",
+                gridTemplateColumns: "64px minmax(0, 1fr) auto",
+                alignItems: "center",
+                gap: "12px",
+                textAlign: "left",
+                fontFamily: "inherit",
+                color: theme.text,
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: "54px",
+                  height: "28px",
+                  borderRadius: "999px",
+                  background: theme.soft,
+                  color: theme.accent,
+                  fontSize: "12px",
+                  fontWeight: 800,
+                }}
+              >
+                {item.typeLabel}
+              </span>
+
+              <span style={{ minWidth: 0 }}>
+                <span
+                  style={{
+                    display: "block",
+                    color: theme.text,
+                    fontSize: "14px",
+                    fontWeight: 800,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.title}
+                </span>
+                <span
+                  style={{
+                    display: "block",
+                    marginTop: "4px",
+                    color: theme.subText,
+                    fontSize: "12px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.subtitle || item.content || "打开查看详情"}
+                </span>
+              </span>
+
+              <span style={{ color: theme.subText, fontSize: "13px" }}>↵</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ theme, children, onClick, muted = false }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={muted}
+      style={{
+        width: "100%",
+        border: "none",
+        background: "transparent",
+        color: muted ? theme.subText : theme.text,
+        borderRadius: "10px",
+        padding: "10px 12px",
+        cursor: muted ? "default" : "pointer",
+        fontSize: "14px",
+        textAlign: "left",
+        fontFamily: "inherit",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

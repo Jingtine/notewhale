@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { getCourses } from "../api/courseApi";
+import {
+  getNotes as getBackendNotes,
+  updateNote as updateBackendNote,
+} from "../api/noteApi";
 
 function NoteEditorPage() {
   const navigate = useNavigate();
@@ -8,6 +13,16 @@ function NoteEditorPage() {
   const { courseId, noteId } = useParams();
 
   const darkMode = JSON.parse(localStorage.getItem("darkMode") || "false");
+
+  const isBackendCourseRoute = String(courseId).startsWith("api-");
+  const backendCourseId = isBackendCourseRoute
+    ? String(courseId).replace(/^api-/, "")
+    : null;
+
+  const isBackendNoteRoute = String(noteId).startsWith("api-note-");
+  const backendNoteId = isBackendNoteRoute
+    ? String(noteId).replace(/^api-note-/, "")
+    : null;
 
   const folders = JSON.parse(
     localStorage.getItem("courseFolders") ||
@@ -19,24 +34,96 @@ function NoteEditorPage() {
     (folder) => folder.courses || folder.items || []
   );
 
-  const course = allCourses.find(
+  const localCourse = allCourses.find(
     (item) => String(item.id) === String(courseId)
   );
+
+  const [backendCourses, setBackendCourses] = useState([]);
+  const [backendNotes, setBackendNotes] = useState([]);
+  const [backendLoading, setBackendLoading] = useState(
+    isBackendCourseRoute || isBackendNoteRoute
+  );
+
+  const backendCourse = isBackendCourseRoute
+    ? backendCourses.find((item) => String(item.id) === String(backendCourseId))
+    : null;
+
+  const course = localCourse ||
+    (backendCourse
+      ? {
+          id: `api-${backendCourse.id}`,
+          backendId: backendCourse.id,
+          title: backendCourse.title,
+          starred: Boolean(backendCourse.starred),
+          backendSynced: true,
+        }
+      : null);
 
   const [notes, setNotes] = useState(() =>
     JSON.parse(localStorage.getItem("notes") || "[]")
   );
 
-  const note = notes.find((item) => String(item.id) === String(noteId));
+  const allNotes = useMemo(
+    () => [...notes, ...backendNotes],
+    [notes, backendNotes]
+  );
 
-  const [title, setTitle] = useState(note?.title || "");
-  const [content, setContent] = useState(note?.content || "");
+  const note = allNotes.find((item) => String(item.id) === String(noteId));
+
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
   const [editorMode, setEditorMode] = useState("document");
   const [symbolPanelOpen, setSymbolPanelOpen] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("https://");
   const [savedTip, setSavedTip] = useState("已同步");
   const [activeHeading, setActiveHeading] = useState("");
+
+  useEffect(() => {
+    if (!isBackendCourseRoute && !isBackendNoteRoute) {
+      setBackendLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setBackendLoading(true);
+
+    async function loadBackendData() {
+      try {
+        const [courseData, noteData] = await Promise.all([
+          getCourses(),
+          getBackendNotes(),
+        ]);
+
+        if (!alive) return;
+
+        setBackendCourses(Array.isArray(courseData) ? courseData : []);
+        setBackendNotes(
+          Array.isArray(noteData) ? noteData.map(mapBackendNoteForEditor) : []
+        );
+      } catch {
+        if (!alive) return;
+        setBackendCourses([]);
+        setBackendNotes([]);
+      } finally {
+        if (alive) setBackendLoading(false);
+      }
+    }
+
+    loadBackendData();
+
+    return () => {
+      alive = false;
+    };
+  }, [isBackendCourseRoute, isBackendNoteRoute, backendCourseId, backendNoteId]);
+
+  useEffect(() => {
+    if (!note) return;
+
+    setTitle(note.title || "");
+    setContent(note.content || "");
+    setSavedTip(note.backendSynced ? "已连接数据库" : "已同步");
+  }, [note?.id]);
 
   const colors = getColors(darkMode);
   const headings = useMemo(() => extractHeadings(content), [content]);
@@ -54,8 +141,32 @@ function NoteEditorPage() {
     return () => window.clearTimeout(timer);
   }, [title, content]);
 
-  function saveNote(silent = false) {
+  async function saveNote(silent = false) {
     if (!note || !title.trim()) return;
+
+    if (note.backendSynced && note.backendId) {
+      try {
+        const savedNote = await updateBackendNote(note.backendId, {
+          title: title.trim(),
+          content,
+        });
+
+        const mappedNote = mapBackendNoteForEditor(savedNote);
+
+        setBackendNotes((prevNotes) =>
+          prevNotes.map((item) =>
+            String(item.id) === String(noteId) ? mappedNote : item
+          )
+        );
+
+        setSavedTip(silent ? "已自动保存到数据库" : "已保存到数据库");
+        window.setTimeout(() => setSavedTip("已连接数据库"), 1400);
+        return;
+      } catch {
+        setSavedTip("后端保存失败，等待重试");
+        return;
+      }
+    }
 
     const nextNotes = notes.map((item) =>
       String(item.id) === String(noteId)
@@ -155,7 +266,7 @@ function NoteEditorPage() {
   if (!note || !course) {
     return (
       <div style={notFoundStyle(colors)}>
-        笔记不存在或已被删除
+        {backendLoading ? "正在同步后端笔记..." : "笔记不存在或已被删除"}
       </div>
     );
   }
@@ -584,6 +695,25 @@ function downloadMarkdown(title, content) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function mapBackendNoteForEditor(note) {
+  return {
+    id: `api-note-${note.id}`,
+    backendId: note.id,
+    title: note.title,
+    content: note.content || "",
+    courseId: note.courseId ? `api-${note.courseId}` : null,
+    backendCourseId: note.courseId,
+    courseName: note.courseName || "",
+    source: note.source || "手动记录",
+    sourceResourceName: note.source || "手动记录",
+    sourceResourceType: note.aiGenerated ? "AI笔记" : "笔记",
+    aiGenerated: Boolean(note.aiGenerated),
+    createdAt: note.createdAt || Date.now(),
+    updatedAt: note.updatedAt || note.createdAt || Date.now(),
+    backendSynced: true,
+  };
 }
 
 function getColors(darkMode) {
