@@ -5,10 +5,8 @@ import base64
 import hashlib
 import hmac
 import json
-import mimetypes
 import os
 import secrets
-import urllib.request
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,14 +26,6 @@ Base.metadata.create_all(bind=engine)
 
 SECRET_KEY = os.getenv("NOTEWHALE_SECRET_KEY", "notewhale-local-dev-secret-change-before-deploy")
 TOKEN_EXPIRE_DAYS = int(os.getenv("NOTEWHALE_TOKEN_EXPIRE_DAYS", "14"))
-
-VISION_API_URL = os.getenv("NOTEWHALE_VISION_API_URL", "").strip()
-VISION_API_KEY = os.getenv("NOTEWHALE_VISION_API_KEY", "").strip()
-VISION_MODEL = os.getenv("NOTEWHALE_VISION_MODEL", "").strip()
-
-TEXT_API_URL = os.getenv("NOTEWHALE_TEXT_API_URL", VISION_API_URL).strip()
-TEXT_API_KEY = os.getenv("NOTEWHALE_TEXT_API_KEY", VISION_API_KEY).strip()
-TEXT_MODEL = os.getenv("NOTEWHALE_TEXT_MODEL", "glm-4-flash").strip()
 
 
 def ensure_schema():
@@ -103,12 +93,32 @@ app = FastAPI(
     version="0.5.0-auth",
 )
 
+# Frontend origins allowed to call this API.
+# Local development:
+#   http://localhost:5173
+#   http://127.0.0.1:5173
+# Production:
+#   https://notewhale.vercel.app
+# You can also add more origins through NOTEWHALE_FRONTEND_ORIGINS,
+# separated by commas.
+frontend_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://notewhale.vercel.app",
+]
+
+extra_origins = os.getenv("NOTEWHALE_FRONTEND_ORIGINS", "").strip()
+if extra_origins:
+    frontend_origins.extend(
+        origin.strip().rstrip("/")
+        for origin in extra_origins.split(",")
+        if origin.strip()
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=frontend_origins,
+    allow_origin_regex=r"^https://notewhale[-a-zA-Z0-9]*-jingtines-projects\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1076,87 +1086,6 @@ def delete_note(
     return {"ok": True, "deletedNoteId": note_id}
 
 
-
-def read_plain_text_file(file_path: Path):
-    try:
-        return file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        try:
-            return file_path.read_text(encoding="gbk", errors="ignore")
-        except Exception:
-            return ""
-
-
-def read_pdf_text(file_path: Path):
-    """读取 PDF 文本。需要安装 pypdf。"""
-    try:
-        from pypdf import PdfReader
-    except Exception:
-        return ""
-
-    try:
-        reader = PdfReader(str(file_path))
-        parts = []
-
-        for index, page in enumerate(reader.pages, start=1):
-            page_text = (page.extract_text() or "").strip()
-            if page_text:
-                parts.append(f"[第 {index} 页]\n{page_text}")
-
-        return "\n\n".join(parts)
-    except Exception:
-        return ""
-
-
-def read_pptx_text(file_path: Path):
-    """读取 PPTX 文本。需要安装 python-pptx。"""
-    try:
-        from pptx import Presentation
-    except Exception:
-        return ""
-
-    try:
-        prs = Presentation(str(file_path))
-        slides = []
-
-        for index, slide in enumerate(prs.slides, start=1):
-            texts = []
-
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    value = (shape.text or "").strip()
-                    if value:
-                        texts.append(value)
-
-            if texts:
-                slides.append(f"[第 {index} 页]\n" + "\n".join(texts))
-
-        return "\n\n".join(slides)
-    except Exception:
-        return ""
-
-
-def read_docx_text(file_path: Path):
-    """读取 DOCX 文本。需要安装 python-docx。"""
-    try:
-        from docx import Document
-    except Exception:
-        return ""
-
-    try:
-        document = Document(str(file_path))
-        parts = []
-
-        for paragraph in document.paragraphs:
-            value = (paragraph.text or "").strip()
-            if value:
-                parts.append(value)
-
-        return "\n".join(parts)
-    except Exception:
-        return ""
-
-
 def normalize_ai_text(text: str, max_length: int = 1600):
     """轻量文本清洗：用于无外部大模型时的演示版 AI 笔记生成。"""
     if not text:
@@ -1174,7 +1103,7 @@ def normalize_ai_text(text: str, max_length: int = 1600):
 
 
 def try_read_resource_text(resource: Optional[Resource]):
-    """尽量读取用户上传的资料正文：txt / md / pdf / pptx / docx。"""
+    """优先读取 txt / md 类资料正文；PDF、PPT 等暂用文件名和课程信息生成演示笔记。"""
     if not resource:
         return ""
 
@@ -1182,21 +1111,13 @@ def try_read_resource_text(resource: Optional[Resource]):
     if not file_path.exists() or not file_path.is_file():
         return ""
 
-    suffix = file_path.suffix.lower()
+    if file_path.suffix.lower() not in {".txt", ".md"}:
+        return ""
 
-    if suffix in {".txt", ".md"}:
-        return read_plain_text_file(file_path)
-
-    if suffix == ".pdf":
-        return read_pdf_text(file_path)
-
-    if suffix == ".pptx":
-        return read_pptx_text(file_path)
-
-    if suffix == ".docx":
-        return read_docx_text(file_path)
-
-    return ""
+    try:
+        return file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ""
 
 
 def infer_ai_keywords(course_name: str, resource_name: str, raw_text: str = ""):
@@ -1330,133 +1251,13 @@ def build_ai_note_content(course_name: str, resource_name: str, raw_text: str = 
 
 
 
-def strip_markdown_fence(value: str):
-    if not value:
-        return ""
-
-    text_value = str(value).strip()
-
-    if text_value.startswith("```"):
-        text_value = text_value.strip("`").strip()
-        if text_value.lower().startswith("markdown"):
-            text_value = text_value[8:].strip()
-        elif text_value.lower().startswith("md"):
-            text_value = text_value[2:].strip()
-
-    return text_value.strip()
-
-
-def call_text_agent_for_course_note(
-    course_name: str,
-    resource_name: str,
-    resource_text: str,
-    note_style: str = "复习型",
-):
-    """
-    调用真正的文本大模型生成课程资料笔记。
-    需要配置：
-    NOTEWHALE_TEXT_API_URL
-    NOTEWHALE_TEXT_API_KEY
-    NOTEWHALE_TEXT_MODEL
-
-    默认接口按 OpenAI-compatible chat/completions 格式发送。
-    """
-    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置文本模型智能体。请设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
-        )
-
-    clean_text = normalize_ai_text(resource_text, max_length=6000)
-
-    if len(clean_text) < 80:
-        raise HTTPException(
-            status_code=422,
-            detail="没有读取到足够的资料正文。请确认已安装 pypdf / python-pptx / python-docx，或上传可复制文字的资料。",
-        )
-
-    prompt = f"""
-你是 NoteWhale 的课程资料笔记智能体。
-
-任务：根据用户上传的课程资料正文，生成一份可编辑的 Markdown 课程笔记。
-不要输出“Demo”，不要泛泛而谈，不要编造资料里没有的信息。
-如果资料中信息不足，请明确写“资料中未给出”。
-
-课程：{course_name}
-资料：{resource_name}
-笔记类型：{note_style}
-
-输出要求：
-1. 只输出 Markdown 正文，不要包裹代码块。
-2. 保留资料中的章节、页码或页序线索，例如“第 1 页 / 第 2 页”。
-3. 必须包含“资料速读”“知识结构”“重点概念”“可回查索引”“复习问题”“待补充清单”。
-4. 尽量把课件内容整理成适合复习的层级结构。
-5. 如果资料是 PPT，每一页的重要信息要尽量保留，不要只写三四条空泛总结。
-6. 内容必须可直接进入编辑器继续修改，并可导出为 PDF。
-7. 控制篇幅，优先生成中期演示可读的精炼版笔记，不要输出超长全文复述。
-
-资料正文如下：
-{clean_text}
-"""
-
-    body = {
-        "model": TEXT_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一个课程资料总结与复习笔记生成智能体，擅长把 PDF/PPT/Word 资料整理为可编辑 Markdown 笔记。",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0.25,
-    }
-
-    request = urllib.request.Request(
-        TEXT_API_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {TEXT_API_KEY}",
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except Exception as error:
-        error_text = str(error)
-
-        if "429" in error_text or "Too Many Requests" in error_text:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    "文本模型请求过于频繁或资料过长，已触发免费额度限流。"
-                    "请等待 1-3 分钟后重试，或换用页数更少的资料。"
-                ),
-            )
-
-        raise HTTPException(status_code=502, detail=f"文本模型调用失败：{error}")
-
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except Exception:
-        raise HTTPException(status_code=502, detail="文本模型返回格式异常，未找到 message.content。")
-
-    return strip_markdown_fence(content)
-
-
-
 @app.post("/api/notes/generate")
 def generate_note(
     payload: GenerateNoteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """真正的 AI powered：读取资料正文后调用文本模型生成可编辑 Markdown 笔记。"""
+    """AI powered 演示版：根据当前账号、课程与资料生成结构化学习笔记。"""
     ensure_course_access(db, payload.courseId, current_user)
 
     resource = None
@@ -1480,19 +1281,18 @@ def generate_note(
             .first()
         )
 
-    resource_text = normalize_ai_text(payload.rawText, max_length=6000) or try_read_resource_text(resource)
+    resource_text = normalize_ai_text(payload.rawText) or try_read_resource_text(resource)
     resource_name = resource.name if resource else payload.resourceName
     course_name = payload.courseName or "课程"
 
-    content = call_text_agent_for_course_note(
+    now = datetime.utcnow()
+    title = f"{course_name} · AI结构化笔记"
+    content = build_ai_note_content(
         course_name=course_name,
         resource_name=resource_name or "课程资料",
-        resource_text=resource_text,
+        raw_text=resource_text,
         note_style=payload.noteStyle or "复习型",
     )
-
-    now = datetime.utcnow()
-    title = f"{course_name} · AI资料笔记"
 
     return {
         "id": int(now.timestamp() * 1000),
@@ -1505,163 +1305,12 @@ def generate_note(
         "createdAt": int(now.timestamp() * 1000),
         "updatedAt": int(now.timestamp() * 1000),
         "aiMeta": {
-            "engine": TEXT_MODEL,
-            "mode": "text-agent",
+            "engine": "notewhale-ai-demo",
             "usedResourceText": bool(resource_text),
             "resourceId": resource.id if resource else None,
             "noteStyle": payload.noteStyle or "复习型",
         },
     }
-
-
-def extract_json_object(text_value: str):
-    """从视觉模型回复中提取 JSON 对象。"""
-    if not text_value:
-        raise ValueError("empty model response")
-
-    text_value = text_value.strip()
-
-    if text_value.startswith("```"):
-        text_value = text_value.strip("`").strip()
-        if text_value.lower().startswith("json"):
-            text_value = text_value[4:].strip()
-
-    start = text_value.find("{")
-    end = text_value.rfind("}")
-
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("no json object")
-
-    return json.loads(text_value[start : end + 1])
-
-
-def normalize_agent_date(date_text: str):
-    """统一模型返回的时间格式。"""
-    if not date_text:
-        return ""
-
-    value = str(date_text).strip()
-    value = value.replace("/", "-").replace("年", "-").replace("月", "-").replace("日", "")
-    value = value.replace("T", " ")
-    value = value.replace("：", ":")
-
-    # 兼容 2026-7-10 18:00
-    import re
-
-    match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2})", value)
-    if match:
-        year, month, day, hour, minute = match.groups()
-        return f"{int(year):04d}-{int(month):02d}-{int(day):02d} {int(hour):02d}:{int(minute):02d}"
-
-    match = re.search(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2})", value)
-    if match:
-        month, day, hour, minute = match.groups()
-        year = datetime.utcnow().year
-        return f"{year:04d}-{int(month):02d}-{int(day):02d} {int(hour):02d}:{int(minute):02d}"
-
-    return value
-
-
-def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
-    """
-    调用真正的视觉模型智能体识别 DDL 截图。
-    需要配置：
-    NOTEWHALE_VISION_API_URL
-    NOTEWHALE_VISION_API_KEY
-    NOTEWHALE_VISION_MODEL
-
-    该函数按 OpenAI-compatible chat/completions 图片输入格式发送请求。
-    """
-    if not VISION_API_URL or not VISION_API_KEY or not VISION_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置视觉模型智能体。请设置 NOTEWHALE_VISION_API_URL / NOTEWHALE_VISION_API_KEY / NOTEWHALE_VISION_MODEL。",
-        )
-
-    if not content:
-        raise HTTPException(status_code=400, detail="图片内容为空")
-
-    mime_type = mimetypes.guess_type(filename or "")[0] or "image/jpeg"
-    image_base64 = base64.b64encode(content).decode("utf-8")
-    image_url = f"data:{mime_type};base64,{image_base64}"
-
-    current_year = datetime.utcnow().year
-
-    prompt = f"""
-你是 NoteWhale 的 DDL 截图识别智能体。
-
-任务：只从截图中抽取“作业 / 论文 / 考试 / 提交任务”的结构化信息，不要总结，不要编造，不要扩写。
-
-当前课程：{course_name or "未归属课程"}
-当前年份：{current_year}
-
-请严格输出一个 JSON 对象，不要 Markdown，不要解释。
-
-字段要求：
-{{
-  "title": "任务标题。优先使用截图中出现的作业名、论文名、邮件标题或课程作业要求。不要写成笼统的课程名。",
-  "date": "截止时间，格式必须是 YYYY-MM-DD HH:mm。如果截图只写月日，请用当前年份。",
-  "platform": "提交平台或地点，例如：邮件提交、在线提交、教学平台、线下提交。",
-  "note": "重要要求，保留原图关键信息，例如字数、格式、邮箱、文件名要求。不要写‘由AI生成’。",
-  "confidence": 0.0到1.0之间的小数
-}}
-
-识别规则：
-1. 如果图中有“7月10日18:00前提交”，date 应为 {current_year}-07-10 18:00。
-2. 如果图中有邮箱或“发至”，platform 应优先为“邮件提交”。
-3. 如果图中有“禁止使用AI”，note 中必须保留。
-4. 如果图中有“邮件标题为”，title 或 note 中必须保留相关要求。
-5. 如果确实看不清，不要乱编，字段可写“待确认”，confidence 降低。
-"""
-
-    body = {
-        "model": VISION_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一个只输出 JSON 的课程 DDL 截图识别智能体。",
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ],
-            },
-        ],
-        "temperature": 0.1,
-    }
-
-    request = urllib.request.Request(
-        VISION_API_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {VISION_API_KEY}",
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"视觉模型调用失败：{error}")
-
-    try:
-        content_text = result["choices"][0]["message"]["content"]
-        parsed = extract_json_object(content_text)
-    except Exception:
-        raise HTTPException(status_code=502, detail="视觉模型返回格式不是有效 JSON，请检查模型能力或提示词。")
-
-    return {
-        "title": str(parsed.get("title") or "待确认任务").strip(),
-        "date": normalize_agent_date(parsed.get("date") or ""),
-        "platform": str(parsed.get("platform") or "待确认").strip(),
-        "note": str(parsed.get("note") or "").strip(),
-        "confidence": float(parsed.get("confidence") or 0.0),
-    }
-
 
 
 @app.post("/api/ddls/recognize")
@@ -1683,52 +1332,6 @@ def recognize_ddl(
         "source": "图片识别",
         "createdAt": int(now.timestamp() * 1000),
     }
-
-
-@app.post("/api/ddls/recognize-agent")
-async def recognize_ddl_agent(
-    file: UploadFile = File(...),
-    courseId: Optional[int] = Query(None),
-    courseName: str = Query("未归属课程"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    真正的视觉模型智能体识图接口：
-    前端上传截图 -> 后端调用视觉模型 -> 返回结构化 DDL 草稿。
-    """
-    ensure_course_access(db, courseId, current_user)
-
-    raw_name = Path(file.filename or "ddl_image.png").name
-    content = await file.read()
-
-    agent_result = call_vision_agent_for_ddl(
-        content=content,
-        filename=raw_name,
-        course_name=courseName or "未归属课程",
-    )
-
-    now = datetime.utcnow()
-
-    return {
-        "id": int(now.timestamp() * 1000),
-        "title": agent_result["title"],
-        "date": agent_result["date"],
-        "courseId": courseId,
-        "courseName": courseName or "未归属课程",
-        "platform": agent_result["platform"],
-        "note": agent_result["note"],
-        "completed": False,
-        "source": "视觉模型智能体",
-        "confidence": agent_result["confidence"],
-        "imageName": raw_name,
-        "createdAt": int(now.timestamp() * 1000),
-        "aiMeta": {
-            "engine": VISION_MODEL,
-            "mode": "vision-agent",
-        },
-    }
-
 
 
 @app.get("/api/resources")
