@@ -1,18 +1,50 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
+const TOKEN_STORAGE_KEY = "notewhale_token";
+const USER_STORAGE_KEY = "notewhale_user";
+
 export function getApiBaseUrl() {
   return API_BASE_URL;
+}
+
+export function getAuthToken() {
+  return localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+}
+
+export function saveAuthSession(session) {
+  if (session?.token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, session.token);
+  }
+
+  if (session?.user) {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
+  }
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+export function getSavedUser() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
 }
 
 export async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
   const isFormData = options.body instanceof FormData;
+  const token = getAuthToken();
 
   const config = {
     ...options,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   };
@@ -35,6 +67,11 @@ export async function request(path, options = {}) {
   if (!response.ok) {
     const message =
       data?.detail || data?.message || `请求失败：${response.status}`;
+
+    if (response.status === 401) {
+      clearAuthSession();
+    }
+
     throw new Error(message);
   }
 

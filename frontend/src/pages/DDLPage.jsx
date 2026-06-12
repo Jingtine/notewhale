@@ -6,10 +6,33 @@ import {
   createDdl as createBackendDdl,
   updateDdl as updateBackendDdl,
   deleteDdl as deleteBackendDdl,
+  recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
 import { getFolders as getBackendFolders } from "../api/folderApi";
 
-function DDLPage() {
+
+function toDatetimeLocalValue(value) {
+  if (!value) return "";
+
+  const text = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16);
+  }
+
+  const normalized = text
+    .replace(/\//g, "-")
+    .replace(" ", "T")
+    .replace("：", ":");
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(0, 16);
+  }
+
+  return "";
+}
+
+function DDLPage({ user = null, onLogout } = {}) {
   const navigate = useNavigate();
 
   const [backendOnline, setBackendOnline] = useState(false);
@@ -54,6 +77,13 @@ function DDLPage() {
   const courses = folders.flatMap(
     (folder) => folder.courses || folder.items || []
   );
+
+  const currentUser = user || {
+    name: "鲸记用户",
+    role: "学生",
+    account: "本地体验账号",
+    avatar: "鲸",
+  };
 
   useEffect(() => {
     localStorage.setItem("darkMode", JSON.stringify(darkMode));
@@ -333,25 +363,39 @@ function DDLPage() {
     resetAddDDLModal();
   }
 
-  function uploadAddDDLImage(event) {
+  async function uploadAddDDLImage(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setNewPreview(URL.createObjectURL(file));
 
-    if (!newTitle.trim()) setNewTitle("法理学论文");
-    if (!newDate.trim()) setNewDate("2026-06-12T23:59");
-    if (!newPlatform.trim()) setNewPlatform("在线提交");
-    if (!newNote.trim()) setNewNote("不少于3000字，参考格式见附件。");
+    const selectedCourse =
+      courses.find((course) => String(course.id) === String(newCourseId)) ||
+      courses[0] ||
+      null;
 
-    const matchedCourse = courses.find((course) =>
-      String(course.title || "").includes("法理学")
-    );
-    if (matchedCourse && !newCourseId) {
-      setNewCourseId(String(matchedCourse.id));
+    if (selectedCourse && !newCourseId) {
+      setNewCourseId(String(selectedCourse.id));
     }
 
-    event.target.value = "";
+    try {
+      const result = await recognizeDdlWithVisionAgent({
+        file,
+        courseId: selectedCourse?.backendSynced
+          ? selectedCourse.backendId
+          : null,
+        courseName: selectedCourse?.title || "未归属课程",
+      });
+
+      setNewTitle(result.title || "");
+      setNewDate(toDatetimeLocalValue(result.date) || "");
+      setNewPlatform(result.platform || "");
+      setNewNote(result.note || "");
+    } catch (error) {
+      alert(error.message || "视觉模型识别失败，请检查智能体配置");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function resetAddDDLModal() {
@@ -462,6 +506,8 @@ function DDLPage() {
         searchResults={searchResults}
         onSearchResultClick={handleSearchResultClick}
         upcomingCount={upcomingDdls.length}
+        user={currentUser}
+        onLogout={onLogout}
         onBack={() => navigate("/")}
       />
 
@@ -472,7 +518,7 @@ function DDLPage() {
           margin: "0 auto",
           flex: 1,
           overflowY: "auto",
-          padding: "22px 28px 116px",
+          padding: "26px 28px 116px",
           boxSizing: "border-box",
           scrollbarWidth: "thin",
         }}
@@ -499,7 +545,7 @@ function DDLPage() {
               backdropFilter: "blur(22px)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "18px" }}>
               <div>
                 <div
                   style={{
@@ -539,7 +585,7 @@ function DDLPage() {
                   统一管理课程截止事项：按状态查看、快速搜索、编辑归属课程，并同步保存到数据库。
                 </p>
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "16px" }}>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "16px" }}>
                   <StatusPill
                     colors={colors}
                     tone={backendOnline ? "#10B981" : "#F59E0B"}
@@ -577,7 +623,7 @@ function DDLPage() {
               background: colors.shell,
               border: `1px solid ${colors.border}`,
               borderRadius: "24px",
-              padding: "16px",
+              padding: "20px",
               boxShadow: darkMode
                 ? "0 18px 42px rgba(0,0,0,0.18)"
                 : "0 16px 36px rgba(15,42,74,0.06)",
@@ -630,7 +676,7 @@ function DDLPage() {
                   fontFamily: "inherit",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px",
+                  gap: "8px",
                 }}
               >
                 {item}
@@ -643,7 +689,7 @@ function DDLPage() {
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "11px",
+                    fontSize: "12px",
                     fontWeight: 900,
                   }}
                 >
@@ -687,8 +733,8 @@ function DDLPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: "14px",
+              gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
+              gap: "18px",
             }}
           >
             {visibleDdls.map((ddl) => (
@@ -774,6 +820,8 @@ function DDLTopBar({
   searchResults,
   onSearchResultClick,
   upcomingCount,
+  user = null,
+  onLogout,
   onBack,
 }) {
   const inputRef = useRef(null);
@@ -807,6 +855,11 @@ function DDLTopBar({
         item: "#F8FAFC",
         soft: "#F1F6FF",
       };
+
+  const displayName = user?.name || "体验用户";
+  const avatarText = user?.avatar || displayName.slice(0, 1) || "体";
+  const roleText = user?.role || "学生";
+  const accountText = user?.account || user?.email || "本地体验账号";
 
   useEffect(() => {
     function handleKeyDown(e) {
@@ -882,7 +935,7 @@ function DDLTopBar({
             alignItems: "center",
             justifyContent: "center",
             cursor: "pointer",
-            fontSize: "16px",
+            fontSize: "18px",
             fontFamily: "inherit",
             flexShrink: 0,
           }}
@@ -910,7 +963,7 @@ function DDLTopBar({
             style={{
               marginTop: "5px",
               color: theme.subText,
-              fontSize: "11px",
+              fontSize: "12px",
               fontWeight: 650,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -974,7 +1027,7 @@ function DDLTopBar({
           <span
             style={{
               color: theme.subText,
-              fontSize: "11px",
+              fontSize: "12px",
               background: theme.soft,
               borderRadius: "8px",
               padding: "4px 7px",
@@ -1064,13 +1117,13 @@ function DDLTopBar({
               fontSize: "14px",
             }}
           >
-            体
+            {avatarText}
           </div>
 
           <span style={{ color: theme.text, fontSize: "14px", fontWeight: 700 }}>
-            体验用户
+            {displayName}
           </span>
-          <span style={{ color: theme.subText, fontSize: "11px" }}>⌄</span>
+          <span style={{ color: theme.subText, fontSize: "12px" }}>⌄</span>
         </div>
       </div>
 
@@ -1114,7 +1167,7 @@ function DDLTopBar({
                 fontWeight: 800,
               }}
             >
-              体
+              {avatarText}
             </div>
 
             <div style={{ minWidth: 0 }}>
@@ -1128,17 +1181,17 @@ function DDLTopBar({
                   whiteSpace: "nowrap",
                 }}
               >
-                体验用户
+                {displayName}
               </div>
 
               <div
                 style={{
                   color: theme.subText,
-                  fontSize: "11px",
+                  fontSize: "12px",
                   marginTop: "4px",
                 }}
               >
-                学生 · 本地体验账号
+                {roleText} · {accountText}
               </div>
             </div>
           </div>
@@ -1177,13 +1230,17 @@ function DDLTopBar({
           <button
             onClick={() => {
               setShowUserMenu(false);
-              onBack();
+              if (onLogout) {
+                onLogout();
+              } else {
+                onBack();
+              }
             }}
             style={{
               width: "100%",
               marginTop: "8px",
               border: "none",
-              borderRadius: "9px",
+              borderRadius: "10px",
               padding: "11px 12px",
               background: darkMode ? "rgba(239,68,68,0.12)" : "#FEF2F2",
               color: "#DC2626",
@@ -1194,7 +1251,7 @@ function DDLTopBar({
               fontFamily: "inherit",
             }}
           >
-            退出体验
+            退出登录
           </button>
         </div>
       )}
@@ -1222,7 +1279,7 @@ function DDLSearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
       <div
         style={{
           color: theme.subText,
-          fontSize: "11px",
+          fontSize: "12px",
           padding: "4px 6px 10px",
           display: "flex",
           justifyContent: "space-between",
@@ -1265,7 +1322,7 @@ function DDLSearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
       )}
 
       {items.length > 0 && (
-        <div style={{ display: "grid", gap: "5px", maxHeight: "430px", overflowY: "auto" }}>
+        <div style={{ display: "grid", gap: "8px", maxHeight: "430px", overflowY: "auto" }}>
           {items.map((ddl) => (
             <button
               key={ddl.id}
@@ -1296,7 +1353,7 @@ function DDLSearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
                   borderRadius: "999px",
                   background: theme.soft,
                   color: theme.accent,
-                  fontSize: "11px",
+                  fontSize: "12px",
                   fontWeight: 800,
                 }}
               >
@@ -1322,7 +1379,7 @@ function DDLSearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
                     display: "block",
                     marginTop: "4px",
                     color: theme.subText,
-                    fontSize: "11px",
+                    fontSize: "12px",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -1347,7 +1404,7 @@ function ddlMenuItemStyle(theme) {
     border: "none",
     background: "transparent",
     color: theme.text,
-    borderRadius: "9px",
+    borderRadius: "10px",
     padding: "10px 12px",
     cursor: "pointer",
     fontSize: "14px",
@@ -1368,7 +1425,7 @@ function headerIconButtonStyle(theme) {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "16px",
+    fontSize: "18px",
   };
 }
 
@@ -1400,7 +1457,7 @@ function StatusPill({ colors, text, tone }) {
         border: `1px solid ${colors.border}`,
         borderRadius: "999px",
         padding: "7px 11px",
-        fontSize: "11px",
+        fontSize: "12px",
         fontWeight: 800,
       }}
     >
@@ -1432,7 +1489,7 @@ function StatCard({ colors, label, value, accent }) {
       <div
         style={{
           color: colors.muted,
-          fontSize: "11px",
+          fontSize: "12px",
           marginTop: "5px",
           fontWeight: 750,
         }}
@@ -1449,9 +1506,9 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
       style={{
         background: colors.card,
         border: `1px solid ${colors.border}`,
-        padding: "16px",
-        borderRadius: "18px",
-        minHeight: "164px",
+        padding: "20px",
+        borderRadius: "22px",
+        minHeight: "210px",
         backdropFilter: "blur(20px)",
         boxShadow: darkMode
           ? "0 12px 28px rgba(0,0,0,0.18)"
@@ -1468,9 +1525,9 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
             style={{
               margin: 0,
               color: colors.title,
-              fontSize: "16px",
+              fontSize: "18px",
               fontWeight: 850,
-              lineHeight: 1.25,
+              lineHeight: 1.35,
               textDecoration: ddl.completed ? "line-through" : "none",
             }}
           >
@@ -1483,8 +1540,8 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
               color: status.color,
               background: `${status.color}16`,
               borderRadius: "999px",
-              padding: "4px 8px",
-              fontSize: "11px",
+              padding: "5px 9px",
+              fontSize: "12px",
               fontWeight: 900,
             }}
           >
@@ -1494,11 +1551,11 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
 
         <div
           style={{
-            marginTop: "8px",
+            marginTop: "12px",
             color: colors.text,
             fontSize: "13px",
             display: "grid",
-            gap: "5px",
+            gap: "8px",
           }}
         >
           <InfoRow label="课程" value={ddl.courseName || "未归属课程"} colors={colors} />
@@ -1511,12 +1568,12 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
           <div
             style={{
               display: "inline-flex",
-              marginTop: "8px",
+              marginTop: "12px",
               color: colors.muted,
               background: colors.soft,
               borderRadius: "999px",
-              padding: "4px 8px",
-              fontSize: "11px",
+              padding: "6px 10px",
+              fontSize: "12px",
               fontWeight: 750,
             }}
           >
@@ -1530,8 +1587,8 @@ function DDLCard({ ddl, colors, darkMode, status, onEdit, onComplete, onDelete }
           display: "flex",
           justifyContent: "flex-end",
           alignItems: "center",
-          marginTop: "10px",
-          gap: "8px",
+          marginTop: "18px",
+          gap: "10px",
           flexWrap: "wrap",
         }}
       >
@@ -1558,8 +1615,8 @@ function InfoRow({ label, value, colors }) {
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "34px 1fr",
-        gap: "8px",
+        gridTemplateColumns: "40px 1fr",
+        gap: "10px",
         alignItems: "start",
       }}
     >
@@ -1571,7 +1628,7 @@ function InfoRow({ label, value, colors }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: label === "备注" ? "normal" : "nowrap",
-          lineHeight: 1.45,
+          lineHeight: 1.6,
         }}
       >
         {value}
@@ -1620,7 +1677,7 @@ function DDLModal({
           maxWidth: "calc(100vw - 40px)",
           background: darkMode ? "#1E293B" : "#FFFFFF",
           border: `1px solid ${colors.border}`,
-          borderRadius: "18px",
+          borderRadius: "22px",
           padding: "32px 36px",
           boxShadow: darkMode
             ? "0 28px 60px rgba(0,0,0,0.45)"
@@ -1717,7 +1774,7 @@ function DDLModal({
                   fontSize: "13px",
                   marginTop: "14px",
                   textAlign: "center",
-                  lineHeight: 1.45,
+                  lineHeight: 1.6,
                 }}
               >
                 支持截图、照片等格式；
@@ -1782,7 +1839,7 @@ function DDLModal({
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
-                gap: "14px",
+                gap: "18px",
                 marginTop: "32px",
               }}
             >
@@ -1914,8 +1971,8 @@ function smallButtonStyle(darkMode, type) {
       border: "none",
       background: "#10B981",
       color: "#FFFFFF",
-      borderRadius: "9px",
-      padding: "6px 10px",
+      borderRadius: "10px",
+      padding: "7px 13px",
       cursor: "pointer",
       fontSize: "13px",
       fontFamily: "inherit",
@@ -1928,8 +1985,8 @@ function smallButtonStyle(darkMode, type) {
       border: "none",
       background: "#EF4444",
       color: "#FFFFFF",
-      borderRadius: "9px",
-      padding: "6px 10px",
+      borderRadius: "10px",
+      padding: "7px 13px",
       cursor: "pointer",
       fontSize: "13px",
       fontFamily: "inherit",
@@ -1941,8 +1998,8 @@ function smallButtonStyle(darkMode, type) {
     border: "none",
     background: darkMode ? "#475569" : "#EAF1FF",
     color: darkMode ? "#E2E8F0" : "#2563EB",
-    borderRadius: "9px",
-    padding: "6px 10px",
+    borderRadius: "10px",
+    padding: "7px 13px",
     cursor: "pointer",
     fontSize: "13px",
     fontFamily: "inherit",

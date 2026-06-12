@@ -5,11 +5,23 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from database import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    avatar = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Folder(Base):
     __tablename__ = "folders"
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -25,6 +37,7 @@ class Course(Base):
     deleted_at = Column(DateTime, nullable=True)
     deleted_folder_id = Column(Integer, nullable=True)
     deleted_folder_title = Column(String, default="")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -40,6 +53,7 @@ class DDL(Base):
     note = Column(Text, default="")
     completed = Column(Boolean, default=False)
     source = Column(String, default="手动新建")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -53,6 +67,7 @@ class Note(Base):
     course_name = Column(String, default="")
     source = Column(String, default="手动记录")
     ai_generated = Column(Boolean, default=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -67,4 +82,5 @@ class Resource(Base):
     size = Column(Integer, default=0)
     course_id = Column(Integer, nullable=True)
     course_name = Column(String, default="")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -18,9 +18,65 @@ import {
   createDdl as createBackendDdl,
   updateDdl as updateBackendDdl,
   deleteDdl as deleteBackendDdl,
+  recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
 
-function CoursePage() {
+import { getCourses as getBackendCourses } from "../api/courseApi";
+
+
+
+function toDatetimeLocalValue(value) {
+  if (!value) return "";
+
+  const text = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16);
+  }
+
+  const normalized = text
+    .replace(/\//g, "-")
+    .replace(" ", "T")
+    .replace("：", ":");
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(0, 16);
+  }
+
+  return "";
+}
+
+function getUserStorageKeyForCoursePage(user, key) {
+  const rawUserId =
+    user?.id ||
+    user?.account ||
+    user?.email ||
+    localStorage.getItem("notewhale_current_user_id") ||
+    "guest";
+
+  const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `notewhale_user_${safeUserId}_${key}`;
+}
+
+function readCoursePageArray(user, key, fallback = []) {
+  try {
+    const scopedValue = localStorage.getItem(getUserStorageKeyForCoursePage(user, key));
+    if (scopedValue) {
+      const parsed = JSON.parse(scopedValue);
+      return Array.isArray(parsed) ? parsed : fallback;
+    }
+
+    const legacyValue = localStorage.getItem(key);
+    if (!legacyValue) return fallback;
+
+    const parsed = JSON.parse(legacyValue);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function CoursePage({ user = null, onLogout } = {}) {
   const navigate = useNavigate();
   const { id } = useParams();
 
@@ -54,11 +110,7 @@ function CoursePage() {
   const isBackendRoute = String(id).startsWith("api-");
   const backendRouteId = isBackendRoute ? String(id).replace(/^api-/, "") : null;
 
-  const folders = JSON.parse(
-    localStorage.getItem("courseFolders") ||
-      localStorage.getItem("folders") ||
-      "[]"
-  );
+  const folders = readCoursePageArray(user, "folders", []);
 
   const allCourses = folders.flatMap(
     (folder) => folder.courses || folder.items || []
@@ -72,15 +124,7 @@ function CoursePage() {
 
     async function loadBackendCourse() {
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/courses", {
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          throw new Error("后端课程读取失败");
-        }
-
-        const data = await response.json();
+        const data = await getBackendCourses();
         if (!alive) return;
         setBackendCourses(Array.isArray(data) ? data : []);
       } catch {
@@ -480,43 +524,68 @@ function CoursePage() {
     event.target.value = "";
   }
 
-  function uploadDDLImage(event) {
+  async function uploadDDLImage(event) {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !course) return;
 
     setSchedulePreview(URL.createObjectURL(file));
-    setScheduleTitle((value) => value || "法理学论文");
-    setScheduleDate((value) => value || "2026-06-12T23:59");
-    setSchedulePlatform((value) => value || "在线提交");
-    setScheduleNote((value) => value || "不少于3000字，参考格式见附件。");
-    event.target.value = "";
+
+    try {
+      const result = await recognizeDdlWithVisionAgent({
+        file,
+        courseId: course.backendSynced ? course.backendId : null,
+        courseName: course.title || "未归属课程",
+      });
+
+      setScheduleTitle(result.title || "");
+      setScheduleDate(toDatetimeLocalValue(result.date) || "");
+      setSchedulePlatform(result.platform || "");
+      setScheduleNote(result.note || "");
+    } catch (error) {
+      alert(error.message || "视觉模型识别失败，请检查智能体配置");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   async function generateNoteFromResource(resource = null) {
     const targetResource = resource || courseResources[0] || null;
 
-    setGeneratedFromResource(targetResource);
+    if (!course) return;
 
-    if (course?.backendSynced) {
-      try {
-        const generated = await generateBackendNote({
-          courseId: course.backendId,
-          courseName: course.title,
-          resourceName: targetResource?.name || "课程资料",
-        });
-
-        setGeneratedNoteTitle(generated.title || `${course.title} · AI结构化笔记`);
-        setGeneratedNoteContent(generated.content || "");
-        setShowGeneratedNoteModal(true);
-        return;
-      } catch {
-        // 后端模拟 AI 暂不可用时，回退到前端 Demo 文案。
-      }
+    if (!targetResource) {
+      alert("请先上传或选择一份课程资料，再生成 AI 笔记。");
+      return;
     }
 
-    setGeneratedNoteTitle(`${course.title} · AI结构化笔记`);
-    setGeneratedNoteContent(buildAINote(course, targetResource, courseResources));
-    setShowGeneratedNoteModal(true);
+    setGeneratedFromResource(targetResource);
+
+    if (!course.backendSynced) {
+      alert("AI 生成笔记需要后端数据库课程。请先使用登录账号创建课程并上传资料。");
+      return;
+    }
+
+    if (!targetResource.backendSynced || !targetResource.backendId) {
+      alert("这份资料还没有同步到后端，无法读取正文生成 AI 笔记。请重新上传资料。");
+      return;
+    }
+
+    try {
+      const generated = await generateBackendNote({
+        courseId: course.backendId,
+        courseName: course.title,
+        resourceName: targetResource.name || "课程资料",
+        resourceId: targetResource.backendId,
+        noteStyle: "复习型",
+      });
+
+      setGeneratedNoteTitle(generated.title || `${course.title} · AI资料笔记`);
+      setGeneratedNoteContent(generated.content || "");
+      setShowGeneratedNoteModal(true);
+      return;
+    } catch (error) {
+      alert(error.message || "AI 资料笔记生成失败，请检查文本模型配置和资料解析依赖。");
+    }
   }
 
   async function saveGeneratedNote() {
@@ -796,26 +865,10 @@ function CoursePage() {
         background: colors.bg,
         display: "flex",
         flexDirection: "column",
+        margin: 0,
+        padding: 0,
       }}
     >
-      <CourseTopBar
-        colors={colors}
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-        course={course}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        searchText={courseSearchText}
-        setSearchText={setCourseSearchText}
-        resultCount={courseSearchResultCount}
-        searchItems={courseSearchItems}
-        onOpenSearchItem={(item) => {
-          if (item.tab) setActiveTab(item.tab);
-          if (item.path) navigate(item.path);
-        }}
-        onBack={() => navigate("/")}
-      />
-
       <main
         style={{
           flex: 1,
@@ -823,10 +876,30 @@ function CoursePage() {
           maxWidth: "none",
           width: "100%",
           margin: "0",
-          padding: "28px 28px 72px",
+          padding: "74px 28px 72px",
           boxSizing: "border-box",
         }}
       >
+        <CourseTopBar
+          colors={colors}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          course={course}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          searchText={courseSearchText}
+          setSearchText={setCourseSearchText}
+          resultCount={courseSearchResultCount}
+          searchItems={courseSearchItems}
+          onOpenSearchItem={(item) => {
+            if (item.tab) setActiveTab(item.tab);
+            if (item.path) navigate(item.path);
+          }}
+          user={user}
+          onLogout={onLogout}
+          onBack={() => navigate("/")}
+        />
+
         <section style={courseShellStyle(colors, darkMode)}>
           <CourseHeader
             course={course}
@@ -1019,11 +1092,13 @@ function CourseTopBar({
   darkMode,
   setDarkMode,
   course,
+  user = null,
   setActiveTab,
   searchText,
   setSearchText,
   searchItems = [],
   onOpenSearchItem,
+  onLogout,
   onBack,
 }) {
   const inputRef = useRef(null);
@@ -1083,53 +1158,67 @@ function CourseTopBar({
     item: darkMode ? "#0F172A" : "#F8FAFC",
   };
 
+  const displayName = user?.name || "体验用户";
+  const avatarText = user?.avatar || displayName.slice(0, 1) || "体";
+  const accountText = user?.account || user?.email || "本地体验账号";
+
   return (
     <header
       style={{
         height: "74px",
+        minHeight: "74px",
+        margin: 0,
         padding: "0 26px",
         display: "grid",
-        gridTemplateColumns: "minmax(220px, 320px) minmax(420px, 540px) auto",
+        gridTemplateColumns: "minmax(260px, 340px) minmax(420px, 540px) auto",
         alignItems: "center",
         gap: "22px",
         borderBottom: theme.border,
         background: theme.bg,
         backdropFilter: "blur(24px)",
         WebkitBackdropFilter: "blur(24px)",
-        position: "relative",
-        flexShrink: 0,
-        zIndex: 50,
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        boxSizing: "border-box",
       }}
     >
-      <div
+      <button
+        onClick={onBack}
         style={{
+          border: "none",
+          background: "transparent",
           display: "flex",
           alignItems: "center",
-          gap: "12px",
+          gap: "14px",
           minWidth: 0,
+          cursor: "pointer",
+          padding: 0,
+          fontFamily: "inherit",
+          textAlign: "left",
         }}
+        title="返回主页"
       >
-        <button
-          onClick={onBack}
-          title="返回主页"
+        <div
           style={{
-            width: "38px",
-            height: "38px",
-            borderRadius: "12px",
-            border: theme.border,
-            background: theme.card,
-            color: theme.subText,
+            width: "48px",
+            height: "48px",
+            borderRadius: "16px",
+            background: "linear-gradient(135deg,#A78BFA,#2563EB)",
+            color: "#FFFFFF",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            cursor: "pointer",
-            fontSize: "18px",
-            fontFamily: "inherit",
+            fontSize: "23px",
+            fontWeight: 800,
+            boxShadow: "0 12px 24px rgba(37,99,235,0.22)",
             flexShrink: 0,
           }}
         >
-          ←
-        </button>
+          {course?.title?.slice(0, 1) || "课"}
+        </div>
 
         <div style={{ minWidth: 0 }}>
           <div
@@ -1161,7 +1250,7 @@ function CourseTopBar({
             鲸记 NoteWhale · 返回主页
           </div>
         </div>
-      </div>
+      </button>
 
       <div style={{ position: "relative", width: "100%" }}>
         <div
@@ -1390,6 +1479,9 @@ function CourseTopBar({
             padding: "0 14px 0 6px",
             cursor: "pointer",
             fontFamily: "inherit",
+            boxShadow: darkMode
+              ? "0 10px 22px rgba(0,0,0,0.16)"
+              : "0 10px 22px rgba(15,42,74,0.06)",
           }}
           title="用户菜单"
         >
@@ -1403,14 +1495,16 @@ function CourseTopBar({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontWeight: 700,
+              fontWeight: 800,
               fontSize: "15px",
               flexShrink: 0,
             }}
           >
-            体
+            {avatarText}
           </span>
-          <span style={{ fontSize: "14px", fontWeight: 800, whiteSpace: "nowrap" }}>体验用户</span>
+          <span style={{ fontSize: "14px", fontWeight: 800, whiteSpace: "nowrap" }}>
+            {displayName}
+          </span>
           <span style={{ color: theme.subText, fontSize: "12px" }}>⌄</span>
         </button>
       </div>
@@ -1447,37 +1541,153 @@ function CourseTopBar({
             position: "absolute",
             top: "66px",
             right: "26px",
-            width: "170px",
+            width: "268px",
             background: theme.panel,
             border: theme.border,
-            borderRadius: "16px",
-            padding: "10px",
+            borderRadius: "18px",
+            padding: "12px",
             boxShadow: darkMode
-              ? "0 18px 36px rgba(0,0,0,0.28)"
-              : "0 18px 36px rgba(15,42,74,0.12)",
+              ? "0 24px 48px rgba(0,0,0,0.38)"
+              : "0 20px 40px rgba(15,42,74,0.14)",
             zIndex: 999,
           }}
         >
-          {["个人资料", "账号设置", "退出登录"].map((item) => (
-            <div
-              key={item}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              padding: "10px 10px 14px",
+              borderBottom: theme.border,
+              marginBottom: "8px",
+            }}
+          >
+            <span
               style={{
-                padding: "10px 12px",
-                borderRadius: "10px",
-                cursor: "pointer",
-                color: item === "退出登录" ? "#DC2626" : theme.text,
-                fontSize: "14px",
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                background: "linear-gradient(135deg,#6366F1,#4F46E5)",
+                color: "white",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 850,
+                fontSize: "16px",
+                flexShrink: 0,
               }}
             >
-              {item}
-            </div>
-          ))}
+              {avatarText}
+            </span>
+
+            <span style={{ minWidth: 0 }}>
+              <span
+                style={{
+                  display: "block",
+                  color: theme.text,
+                  fontSize: "14px",
+                  fontWeight: 850,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {displayName}
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  marginTop: "4px",
+                  color: theme.subText,
+                  fontSize: "12px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {accountText}
+              </span>
+            </span>
+          </div>
+
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              setActiveTab("settings");
+            }}
+            style={courseMenuItemStyle(theme)}
+          >
+            当前课程设置
+          </button>
+
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              onBack?.();
+            }}
+            style={courseMenuItemStyle(theme)}
+          >
+            返回主页
+          </button>
+
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              setShowNotice(true);
+            }}
+            style={courseMenuItemStyle(theme)}
+          >
+            查看 DDL 提醒
+          </button>
+
+          <button
+            disabled
+            style={{
+              ...courseMenuItemStyle(theme),
+              color: theme.subText,
+              cursor: "default",
+              opacity: 0.72,
+            }}
+          >
+            账号设置 · 后续接入
+          </button>
+
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              onLogout?.();
+            }}
+            style={{
+              ...courseMenuItemStyle(theme),
+              color: "#DC2626",
+              marginTop: "4px",
+            }}
+          >
+            退出登录
+          </button>
         </div>
       )}
     </header>
   );
 }
 
+
+
+function courseMenuItemStyle(theme) {
+  return {
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    color: theme.text,
+    borderRadius: "11px",
+    padding: "10px 12px",
+    cursor: "pointer",
+    fontSize: "14px",
+    textAlign: "left",
+    fontFamily: "inherit",
+    fontWeight: 650,
+  };
+}
 
 function CourseHeader({
   course,
@@ -1936,7 +2146,7 @@ function SettingsTab({
             lineHeight: 1.7,
           }}
         >
-          管理当前课程的基础信息、学习数据与同步状态。当前为演示版本，后续可接入后端完成资料持久化与多端同步。
+          管理当前课程的基础信息、学习数据与智能化能力状态。当前课程资料、笔记与 DDL 已接入后端账号数据体系。
         </p>
       </div>
 
@@ -1956,14 +2166,24 @@ function SettingsTab({
                 当前课程空间的基础状态
               </p>
             </div>
-            <span style={settingBadgeStyle(colors)}>Local</span>
+            <span style={settingBadgeStyle(colors)}>
+              {course.backendSynced ? "Cloud" : "Local"}
+            </span>
           </div>
 
           <div style={{ display: "grid", gap: "12px" }}>
             <SettingLine label="课程名称" value={course.title} colors={colors} />
-            <SettingLine label="存储方式" value="浏览器本地存储" colors={colors} />
-            <SettingLine label="同步状态" value="等待后端接入" colors={colors} />
-            <SettingLine label="课程空间" value="资料 / 笔记 / DDL" colors={colors} />
+            <SettingLine
+              label="存储方式"
+              value={course.backendSynced ? "后端数据库保存" : "浏览器本地保存"}
+              colors={colors}
+            />
+            <SettingLine
+              label="同步状态"
+              value={course.backendSynced ? "已按账号同步" : "本地临时课程"}
+              colors={colors}
+            />
+            <SettingLine label="课程空间" value="资料 / 笔记 / DDL / AI 笔记" colors={colors} />
           </div>
         </div>
 
@@ -1979,10 +2199,10 @@ function SettingsTab({
           </div>
 
           <div style={{ display: "grid", gap: "10px" }}>
-            <StatusTag colors={colors} text="AI 笔记生成 Demo 已接入" />
-            <StatusTag colors={colors} text="Markdown 导出已支持" />
+            <StatusTag colors={colors} text="AI 资料笔记智能体已接入" />
+            <StatusTag colors={colors} text="Markdown 编辑与 PDF 导出已支持" />
             <StatusTag colors={colors} text="资料查看与笔记关联已支持" />
-            <StatusTag colors={colors} text="后端同步中期接入" />
+            <StatusTag colors={colors} text="账号数据隔离与后端同步已接入" />
           </div>
         </div>
       </div>
@@ -2042,18 +2262,18 @@ function SettingsTab({
               lineHeight: 1.8,
             }}
           >
-            当前演示版本使用 localStorage 保存课程资料记录、笔记和 DDL。
-            浏览器刷新后仍会保留文本记录，但资料文件本体需后端或本地文件系统持久化保存。
+            当前课程数据优先保存到后端数据库，并按登录账号进行隔离。
+            浏览器仅保留少量临时缓存与登录状态；上传资料会进入后端文件区，AI 笔记会保存为可编辑 Markdown 笔记。
           </p>
         </div>
 
         <div style={settingPanelStyle(colors)}>
-          <h3 style={settingTitleStyle(colors)}>后端接入计划</h3>
+          <h3 style={settingTitleStyle(colors)}>已接入能力</h3>
 
           <div style={{ display: "grid", gap: "10px" }}>
-            <StatusTag colors={colors} text="课程、资料、笔记、DDL 建表" />
+            <StatusTag colors={colors} text="课程、资料、笔记、DDL 后端建表" />
             <StatusTag colors={colors} text="上传文件保存到 backend/uploads" />
-            <StatusTag colors={colors} text="前端 API 层替换 localStorage" />
+            <StatusTag colors={colors} text="AI 生成笔记后可继续编辑并导出 PDF" />
           </div>
         </div>
       </div>

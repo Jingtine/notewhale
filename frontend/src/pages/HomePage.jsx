@@ -19,7 +19,38 @@ import {
   updateFolder as updateBackendFolder,
   deleteFolder as deleteBackendFolder,
 } from "../api/folderApi";
-import { getDdls, createDdl as createBackendDdl } from "../api/ddlApi";
+import {
+  getDdls,
+  createDdl as createBackendDdl,
+  recognizeDdlWithVisionAgent,
+} from "../api/ddlApi";
+
+function getUserStorageKey(user, key) {
+  const rawUserId =
+    user?.id ||
+    user?.account ||
+    user?.email ||
+    localStorage.getItem("notewhale_current_user_id") ||
+    "guest";
+
+  const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `notewhale_user_${safeUserId}_${key}`;
+}
+
+function readUserStorageArray(user, key, fallback = []) {
+  try {
+    const value = localStorage.getItem(getUserStorageKey(user, key));
+    if (!value) return fallback;
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeUserStorageArray(user, key, value) {
+  localStorage.setItem(getUserStorageKey(user, key), JSON.stringify(value));
+}
 
 function HomePage({ user = null, onLogout } = {}) {
   const [selectedFolder, setSelectedFolder] = useState("全部");
@@ -36,10 +67,9 @@ function HomePage({ user = null, onLogout } = {}) {
   const [newCourseName, setNewCourseName] = useState("");
   const [targetFolderId, setTargetFolderId] = useState("");
 
-  const [deletedCourses,setDeletedCourses,] = useState(() => {
-    const saved =localStorage.getItem("deletedCourses");
-    return saved
-      ? JSON.parse(saved): [];});
+  const [deletedCourses,setDeletedCourses,] = useState(() =>
+    readUserStorageArray(user, "deletedCourses", [])
+  );
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteCourseId, setPendingDeleteCourseId] = useState(null);
@@ -78,77 +108,11 @@ function HomePage({ user = null, onLogout } = {}) {
   const [renameCourseFolderId, setRenameCourseFolderId] = useState("");
 
   const [folders, setFolders] =
-    useState(() => { const saved =localStorage.getItem("folders");
+    useState(() => readUserStorageArray(user, "folders", []));
 
-      return saved? JSON.parse(saved)
-        : [
-            {
-              id: 1,
-                title: "专业必修课",
-              courses: [{
-                id: 1,
-                title:"离散数学",
-                starred:false,
-                noteCount:18,
-                ddlCount:2,},
-                {
-                  id: 2,
-                  title:"Java程序设计",
-                  starred:false, 
-                  noteCount:24,
-                  ddlCount: 3, 
-                },
-                {
-                  id: 3,
-                  title:"Python",
-                  starred:false,
-                  noteCount:12,
-                  ddlCount:1,
-                },
-              ],
-            },
-            {
-              id: 2,
-              title:"通识教育",
-                courses: [{
-                  id: 4,
-                  title:"宏观经济学",
-                  starred:false,
-                  noteCount:16,
-                  ddlCount:2, },
-                {
-                  id: 5,
-                  title:"法理学",
-                  starred:false,
-                  noteCount:10,
-                  ddlCount:1,
-                },
-              ],
-            },
-          ];
-    });
-
-  const [ddls, setDdls] = useState(() => {
-    const saved =localStorage.getItem( "ddls" );
-
-    return saved
-      ? JSON.parse(saved): [
-          {
-            id: 1,
-            title:  "离散数学作业",
-            date:  "2026-06-15 23:59",
-            courseName:  "离散数学",
-            completed: false,
-          },
-          {
-            id: 2,
-            title:  "宏观经济学论文",
-            date: "2026-06-18",
-            courseName:  "宏观经济学",
-            completed: false,
-          },
-        ];
-  });
+  const [ddls, setDdls] = useState(() =>
+    readUserStorageArray(user, "ddls", [])
+  );
 
   async function addFolder() {
     const title = newFolderName.trim();
@@ -182,17 +146,29 @@ function HomePage({ user = null, onLogout } = {}) {
     setShowFolderModal(false);
   }
 
-  function openCourseModal(folderId) {
-    setTargetFolderId(folderId);
+  function openCourseModal(folderId = "") {
+    const realFolders = folders.filter((folder) => isRealFolder(folder));
+    const selectedRealFolder = realFolders.find(
+      (folder) => folder.title === selectedFolder
+    );
+
+    const defaultFolderId =
+      folderId ||
+      selectedRealFolder?.id ||
+      realFolders[0]?.id ||
+      "__unassigned";
+
+    setTargetFolderId(String(defaultFolderId));
     setShowCourseModal(true);
   }
 
   async function addCourse() {
-    if (!newCourseName.trim() || !targetFolderId) return;
+    const safeTargetFolderId = targetFolderId || "__unassigned";
+    if (!newCourseName.trim()) return;
 
     const title = newCourseName.trim();
 
-    if (String(targetFolderId) === "__unassigned") {
+    if (String(safeTargetFolderId) === "__unassigned") {
       if (apiStatus.online) {
         try {
           const savedCourse = await createBackendCourse({
@@ -235,7 +211,7 @@ function HomePage({ user = null, onLogout } = {}) {
     }
 
     const targetFolder = folders.find(
-      (folder) => String(folder.id) === String(targetFolderId)
+      (folder) => String(folder.id) === String(safeTargetFolderId)
     );
 
     if (!targetFolder) return;
@@ -301,7 +277,7 @@ function HomePage({ user = null, onLogout } = {}) {
 
     setFolders(
       folders.map((folder) =>
-        String(folder.id) === String(targetFolderId)
+        String(folder.id) === String(safeTargetFolderId)
           ? { ...folder, courses: [...folder.courses, newCourse] }
           : folder
       )
@@ -407,25 +383,39 @@ function HomePage({ user = null, onLogout } = {}) {
     resetDDLModal();
   }
 
-  function uploadDDLImage(event) {
+  async function uploadDDLImage(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setNewDDLPreview(URL.createObjectURL(file));
 
-    if (!newDDLTitle.trim()) setNewDDLTitle("法理学论文");
-    if (!newDDLDate.trim()) setNewDDLDate("2026-06-12T23:59");
-    if (!newDDLPlatform.trim()) setNewDDLPlatform("在线提交");
-    if (!newDDLNote.trim()) setNewDDLNote("不少于3000字，参考格式见附件。");
+    const selectedCourse =
+      allCourses.find((course) => String(course.id) === String(newDDLCourseId)) ||
+      allCourses[0] ||
+      null;
 
-    const matchedCourse = allCourses.find((course) =>
-      String(course.title || "").includes("法理学")
-    );
-    if (matchedCourse && !newDDLCourseId) {
-      setNewDDLCourseId(String(matchedCourse.id));
+    if (selectedCourse && !newDDLCourseId) {
+      setNewDDLCourseId(String(selectedCourse.id));
     }
 
-    event.target.value = "";
+    try {
+      const result = await recognizeDdlWithVisionAgent({
+        file,
+        courseId: selectedCourse?.backendSynced
+          ? selectedCourse.backendId
+          : null,
+        courseName: selectedCourse?.title || "未归属课程",
+      });
+
+      setNewDDLTitle(result.title || "");
+      setNewDDLDate(toDatetimeLocalValue(result.date) || "");
+      setNewDDLPlatform(result.platform || "");
+      setNewDDLNote(result.note || "");
+    } catch (error) {
+      alert(error.message || "视觉模型识别失败，请检查智能体配置");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function resetDDLModal() {
@@ -882,11 +872,11 @@ function HomePage({ user = null, onLogout } = {}) {
   /* 自动持久化保存 */
 
     useEffect(() => {
-      localStorage.setItem("folders",JSON.stringify(folders));}, [folders]);
+      writeUserStorageArray(user, "folders", folders);}, [folders, user]);
 
-    useEffect(() => {localStorage.setItem( "ddls", JSON.stringify(ddls));}, [ddls]);
+    useEffect(() => {writeUserStorageArray(user, "ddls", ddls);}, [ddls, user]);
 
-    useEffect(() => {localStorage.setItem( "deletedCourses", JSON.stringify(deletedCourses));}, [deletedCourses]);
+    useEffect(() => {writeUserStorageArray(user, "deletedCourses", deletedCourses);}, [deletedCourses, user]);
 
     useEffect(() => {localStorage.setItem( "darkMode", JSON.stringify(darkMode));}, [darkMode]);
 
@@ -949,13 +939,14 @@ function HomePage({ user = null, onLogout } = {}) {
           0
         );
 
+        setFolders(nextFolders);
+
         if (nextFolders.length > 0) {
-          setFolders(nextFolders);
           setBackendCourseMessage(
             `已同步 ${nextFolders.length} 个文件夹，${backendCourseCount} 门课程`
           );
         } else {
-          setBackendCourseMessage("后端暂无文件夹，可新建文件夹同步到数据库");
+          setBackendCourseMessage("当前账号暂无文件夹，可新建文件夹同步到数据库");
         }
       } catch (error) {
         if (!alive) return;
@@ -1014,11 +1005,12 @@ function HomePage({ user = null, onLogout } = {}) {
 
         const nextBackendDdls = Array.isArray(data) ? data.map(mapBackendDdl) : [];
 
+        setDdls(nextBackendDdls);
+
         if (nextBackendDdls.length > 0) {
-          setDdls(nextBackendDdls);
           setBackendDdlMessage(`已同步 ${nextBackendDdls.length} 条 DDL`);
         } else {
-          setBackendDdlMessage("后端暂无 DDL，可新建日程同步到数据库");
+          setBackendDdlMessage("当前账号暂无 DDL，可新建日程同步到数据库");
         }
       } catch (error) {
         if (!alive) return;
@@ -1052,8 +1044,8 @@ function HomePage({ user = null, onLogout } = {}) {
 
   const starredCourses = searchedAllCourses.filter((course) => course.starred);
 
-  const allNotesForSearch = readStorageArray("notes");
-  const allResourcesForSearch = readStorageArray("resources");
+  const allNotesForSearch = readUserStorageArray(user, "notes", []);
+  const allResourcesForSearch = readUserStorageArray(user, "resources", []);
   const noteCount = allNotesForSearch.length;
   const resourceCount = allResourcesForSearch.length;
 
@@ -1411,7 +1403,7 @@ function HomePage({ user = null, onLogout } = {}) {
             style={inputStyle}
           >
             <option value="">请选择文件夹</option>
-            <option value="__unassigned">不归属任何课程</option>
+            <option value="__unassigned">未归属课程</option>
             {folders
               .filter((folder) => folder.id !== "__unassigned")
               .map((folder) => (
@@ -1589,6 +1581,28 @@ function HomePage({ user = null, onLogout } = {}) {
   );
 }
 
+
+
+function toDatetimeLocalValue(value) {
+  if (!value) return "";
+
+  const text = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16);
+  }
+
+  const normalized = text
+    .replace(/\//g, "-")
+    .replace(" ", "T")
+    .replace("：", ":");
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(0, 16);
+  }
+
+  return "";
+}
 
 function isRealFolder(folder) {
   return !["all", "starred", "trash", "recent", "__unassigned"].includes(

@@ -6,42 +6,91 @@ import HomePage from "./pages/HomePage";
 import CoursePage from "./pages/CoursePage";
 import NoteEditorPage from "./pages/NoteEditorPage";
 import DDLPage from "./pages/DDLPage";
-
-const USER_STORAGE_KEY = "notewhale_user";
+import { clearAuthSession, getAuthToken, getSavedUser, saveAuthSession } from "./api/apiClient";
+import { getCurrentUser, logoutAccount } from "./api/authApi";
 
 function App() {
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "null");
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(() => getSavedUser());
+  const [authChecking, setAuthChecking] = useState(() => Boolean(getAuthToken()));
 
   useEffect(() => {
-    if (user) {
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(USER_STORAGE_KEY);
-    }
-  }, [user]);
+    let alive = true;
 
-  function handleLogin(nextUser) {
-    const safeUser = {
-      id: nextUser?.id || `local-${Date.now()}`,
-      name: nextUser?.name || "鲸记用户",
-      account: nextUser?.account || nextUser?.email || "",
-      role: nextUser?.role || "学生",
-      avatar: nextUser?.avatar || (nextUser?.name || "鲸").slice(0, 1),
-      loginAt: nextUser?.loginAt || new Date().toISOString(),
-      authMode: nextUser?.authMode || "local-demo",
+    async function syncCurrentUser() {
+      const token = getAuthToken();
+
+      if (!token) {
+        setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const currentUser = await getCurrentUser();
+
+        if (!alive) return;
+
+        const safeUser = normalizeUser(currentUser);
+        setUser(safeUser);
+        saveAuthSession({
+          token,
+          user: safeUser,
+        });
+      } catch {
+        if (!alive) return;
+
+        clearAuthSession();
+        setUser(null);
+      } finally {
+        if (alive) setAuthChecking(false);
+      }
+    }
+
+    syncCurrentUser();
+
+    return () => {
+      alive = false;
     };
+  }, []);
+
+  function handleLogin(sessionOrUser) {
+    const nextUser = sessionOrUser?.user || sessionOrUser;
+    const token = sessionOrUser?.token || getAuthToken();
+
+    const safeUser = normalizeUser(nextUser);
+
+    if (token) {
+      saveAuthSession({
+        token,
+        user: safeUser,
+      });
+    }
 
     setUser(safeUser);
   }
 
   function handleLogout() {
+    logoutAccount();
     setUser(null);
+  }
+
+  if (authChecking) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background:
+            "linear-gradient(180deg,#F5F9FF 0%,#EEF6FF 100%)",
+          color: "#64748B",
+          fontFamily:
+            `"Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif`,
+        }}
+      >
+        正在恢复登录状态...
+      </div>
+    );
   }
 
   return (
@@ -96,6 +145,22 @@ function App() {
       <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
     </Routes>
   );
+}
+
+function normalizeUser(nextUser) {
+  const name = nextUser?.name || "鲸记用户";
+
+  return {
+    id: nextUser?.id || `api-${Date.now()}`,
+    name,
+    account: nextUser?.account || nextUser?.email || "",
+    email: nextUser?.email || "",
+    studentId: nextUser?.studentId || "",
+    role: nextUser?.role || "学生",
+    avatar: nextUser?.avatar || name.slice(0, 1),
+    loginAt: nextUser?.loginAt || new Date().toISOString(),
+    authMode: nextUser?.authMode || "api",
+  };
 }
 
 function ProtectedRoute({ user, children }) {

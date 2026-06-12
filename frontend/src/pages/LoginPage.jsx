@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import logo from "../assets/logo_main.png";
+import { getApiBaseUrl } from "../api/apiClient";
+import { loginAccount, registerAccount } from "../api/authApi";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = getApiBaseUrl();
 
 function LoginPage({ onLogin }) {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ function LoginPage({ onLogin }) {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("学生");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [apiState, setApiState] = useState("checking");
 
   const from = searchParams.get("from") || "/";
@@ -78,56 +80,98 @@ function LoginPage({ onLogin }) {
     };
   }, [apiState]);
 
-  function submit() {
+  async function submit() {
     const cleanAccount = account.trim();
     const cleanName = name.trim() || cleanAccount.split("@")[0] || studentId.trim();
+
+    if (apiState !== "online") {
+      setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
+      return;
+    }
 
     if (!cleanAccount) {
       setError("请填写邮箱 / 学号");
       return;
     }
 
-    if (!cleanName) {
-      setError("请填写昵称或姓名");
-      return;
-    }
-
     if (!password.trim()) {
-      setError("请填写密码。当前版本为本地体验登录，不会进行真实校验。");
+      setError("请填写密码");
       return;
     }
 
-    const nextUser = {
-      id: studentId.trim() || cleanAccount,
-      account: cleanAccount,
-      email: cleanAccount.includes("@") ? cleanAccount : "",
-      name: cleanName,
-      studentId: studentId.trim(),
-      role,
-      avatar: cleanName.slice(0, 1).toUpperCase(),
-      loginAt: new Date().toISOString(),
-      authMode: apiState === "online" ? "api-ready-demo" : "local-demo",
-    };
+    if (mode === "register" && !cleanName) {
+      setError("注册时请填写昵称或姓名");
+      return;
+    }
 
-    onLogin?.(nextUser);
-    navigate(from, { replace: true });
+    if (mode === "register" && password.trim().length < 6) {
+      setError("密码至少需要 6 位");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const session =
+        mode === "register"
+          ? await registerAccount({
+              account: cleanAccount,
+              password: password.trim(),
+              name: cleanName,
+              role: "学生",
+              studentId: "",
+            })
+          : await loginAccount({
+              account: cleanAccount,
+              password: password.trim(),
+            });
+
+      onLogin?.(session);
+      navigate(from, { replace: true });
+    } catch (error) {
+      setError(error.message || (mode === "register" ? "注册失败" : "登录失败"));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function useDemoAccount() {
-    const demoUser = {
-      id: "demo-user",
-      account: "demo",
-      email: "",
+  async function useDemoAccount() {
+    if (apiState !== "online") {
+      setError("演示账号也需要后端在线。请先启动 FastAPI 后端。");
+      return;
+    }
+
+    const demo = {
+      account: "demo@notewhale.local",
+      password: "notewhale-demo",
       name: "体验用户",
-      studentId: "",
       role: "体验用户",
-      avatar: "体",
-      loginAt: new Date().toISOString(),
-      authMode: apiState === "online" ? "api-ready-demo" : "local-demo",
+      studentId: "",
     };
 
-    onLogin?.(demoUser);
-    navigate(from, { replace: true });
+    setLoading(true);
+    setError("");
+
+    try {
+      let session;
+
+      try {
+        session = await loginAccount({
+          account: demo.account,
+          password: demo.password,
+        });
+      } catch {
+        session = await registerAccount(demo);
+      }
+
+      onLogin?.(session);
+      navigate(from, { replace: true });
+    } catch (error) {
+      setError(error.message || "演示账号进入失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -152,8 +196,8 @@ function LoginPage({ onLogin }) {
           </h1>
 
           <p style={heroTextStyle}>
-            中期演示版本已接入本地会话、课程空间与后端健康检测。
-            后续可平滑升级为真实账号、云端同步与智能解析。
+            当前版本已接入真实账号登录、用户数据隔离与数据库同步。
+            换一台设备登录同一账号，也可以读取该账号的课程、DDL、笔记与资料记录。
           </p>
 
           <div style={featureGridStyle}>
@@ -182,7 +226,9 @@ function LoginPage({ onLogin }) {
                 {mode === "login" ? "登录学习空间" : "创建体验账号"}
               </h2>
               <p style={cardTextStyle}>
-                当前为产品演示登录，可使用匿名体验账号进入。
+                {mode === "login"
+                  ? "输入账号和密码，进入你的云端学习空间。"
+                  : "创建账号后，课程、DDL、笔记会按账号保存。"}
               </p>
             </div>
 
@@ -220,45 +266,26 @@ function LoginPage({ onLogin }) {
               setAccount(event.target.value);
               setError("");
             }}
-            placeholder="例如：student@example.com / 2026xxxx"
+            placeholder={mode === "login" ? "请输入邮箱 / 学号" : "例如：student@example.com / 2026xxxx"}
             style={inputStyle}
           />
 
-          <label style={labelStyle}>昵称 / 姓名</label>
-          <input
-            value={name}
-            onChange={(event) => {
-              setName(event.target.value);
-              setError("");
-            }}
-            placeholder="例如：鲸记用户"
-            style={inputStyle}
-          />
-
-          <div style={twoColumnStyle}>
-            <div>
-              <label style={labelStyle}>学号（可选）</label>
+          {mode === "register" && (
+            <>
+              <label style={labelStyle}>昵称 / 姓名</label>
               <input
-                value={studentId}
-                onChange={(event) => setStudentId(event.target.value)}
-                placeholder="2026xxxx"
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setError("");
+                }}
+                placeholder="例如：鲸记用户"
                 style={inputStyle}
               />
-            </div>
 
-            <div>
-              <label style={labelStyle}>身份</label>
-              <select
-                value={role}
-                onChange={(event) => setRole(event.target.value)}
-                style={inputStyle}
-              >
-                <option value="学生">学生</option>
-                <option value="教师">教师</option>
-                <option value="体验用户">体验用户</option>
-              </select>
-            </div>
-          </div>
+
+            </>
+          )}
 
           <label style={labelStyle}>密码</label>
           <input
@@ -275,30 +302,41 @@ function LoginPage({ onLogin }) {
             }}
           />
 
+          {mode === "login" && (
+            <div style={loginTipStyle}>
+              <div style={loginTipTitleStyle}>账号数据云端同步</div>
+              <div style={loginTipTextStyle}>
+                登录后会自动读取该账号下的课程、DDL、笔记与资料记录。
+              </div>
+            </div>
+          )}
+
           {error && <div style={errorStyle}>{error}</div>}
 
-          <button onClick={submit} style={primaryButtonStyle}>
-            {mode === "login" ? "进入鲸记" : "注册并进入"}
+          <div style={actionAreaStyle}>
+            <button onClick={submit} style={primaryButtonStyle} disabled={loading}>
+            {loading ? "正在处理..." : mode === "login" ? "登录鲸记" : "注册并进入"}
           </button>
 
-          <button onClick={useDemoAccount} style={demoButtonStyle}>
+          <button onClick={useDemoAccount} style={demoButtonStyle} disabled={loading}>
             使用演示账号进入
           </button>
 
-          <p style={hintStyle}>
-            {mode === "login"
-              ? "还没有账号？"
-              : "已有账号？"}
-            <button
-              onClick={() => {
-                setMode(mode === "login" ? "register" : "login");
-                setError("");
-              }}
-              style={linkButtonStyle}
-            >
-              {mode === "login" ? "创建体验账号" : "返回登录"}
-            </button>
-          </p>
+            <p style={hintStyle}>
+              {mode === "login"
+                ? "还没有账号？"
+                : "已有账号？"}
+              <button
+                onClick={() => {
+                  setMode(mode === "login" ? "register" : "login");
+                  setError("");
+                }}
+                style={linkButtonStyle}
+              >
+                {mode === "login" ? "创建体验账号" : "返回登录"}
+              </button>
+            </p>
+          </div>
         </section>
       </main>
     </div>
@@ -325,6 +363,8 @@ const pageStyle = {
   justifyContent: "center",
   padding: "32px",
   boxSizing: "border-box",
+  display: "flex",
+  flexDirection: "column",
   fontFamily:
     `"Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif`,
   position: "relative",
@@ -358,10 +398,12 @@ const layoutStyle = {
   gap: "24px",
   position: "relative",
   zIndex: 1,
+  alignItems: "stretch",
 };
 
 const brandPanelStyle = {
-  minHeight: "600px",
+  height: "640px",
+  minHeight: "640px",
   borderRadius: "24px",
   padding: "36px",
   background: "rgba(255,255,255,0.72)",
@@ -451,7 +493,8 @@ const statusDotStyle = {
 };
 
 const loginCardStyle = {
-  minHeight: "600px",
+  height: "640px",
+  minHeight: "640px",
   background: "rgba(255,255,255,0.94)",
   border: "1px solid #E2E8F0",
   borderRadius: "22px",
@@ -546,12 +589,6 @@ const inputStyle = {
   fontFamily: "inherit",
 };
 
-const twoColumnStyle = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "12px",
-};
-
 const errorStyle = {
   marginTop: "14px",
   background: "#FEF2F2",
@@ -561,6 +598,31 @@ const errorStyle = {
   padding: "10px 12px",
   fontSize: "13px",
   lineHeight: 1.6,
+};
+
+const loginTipStyle = {
+  marginTop: "18px",
+  border: "1px solid #E2E8F0",
+  borderRadius: "14px",
+  background: "#F8FAFC",
+  padding: "14px 16px",
+};
+
+const loginTipTitleStyle = {
+  color: "#183B63",
+  fontSize: "13px",
+  fontWeight: 850,
+};
+
+const loginTipTextStyle = {
+  marginTop: "6px",
+  color: "#64748B",
+  fontSize: "13px",
+  lineHeight: 1.7,
+};
+
+const actionAreaStyle = {
+  marginTop: "auto",
 };
 
 const primaryButtonStyle = {

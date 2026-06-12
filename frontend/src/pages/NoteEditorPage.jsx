@@ -263,6 +263,10 @@ function NoteEditorPage() {
     downloadMarkdown(title, content);
   }
 
+  function exportPdf() {
+    exportMarkdownAsPdf(title, content, course?.title || "课程");
+  }
+
   if (!note || !course) {
     return (
       <div style={notFoundStyle(colors)}>
@@ -379,6 +383,7 @@ function NoteEditorPage() {
               <div style={toolbarRightStyle}>
                 <span style={saveTipStyle(colors)}>{savedTip}</span>
                 <button onClick={exportMarkdown} style={secondaryButton(colors)}>导出 MD</button>
+                <button onClick={exportPdf} style={secondaryButton(colors)}>导出 PDF</button>
                 <button onClick={() => saveNote(false)} style={primaryButton(colors)}>保存</button>
               </div>
             </header>
@@ -695,6 +700,176 @@ function downloadMarkdown(title, content) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function inlineMarkdownToHtml(value = "") {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+}
+
+function markdownToPrintableHtml(markdown = "") {
+  const lines = String(markdown || "").split("\n");
+  const html = [];
+  let listOpen = false;
+  let tableRows = [];
+
+  function closeList() {
+    if (listOpen) {
+      html.push("</ul>");
+      listOpen = false;
+    }
+  }
+
+  function flushTable() {
+    if (!tableRows.length) return;
+
+    const rows = tableRows.filter((row) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(row));
+    if (rows.length) {
+      html.push("<table>");
+      rows.forEach((row, index) => {
+        const cells = row
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => inlineMarkdownToHtml(cell.trim()));
+        const tag = index === 0 ? "th" : "td";
+        html.push(`<tr>${cells.map((cell) => `<${tag}>${cell}</${tag}>`).join("")}</tr>`);
+      });
+      html.push("</table>");
+    }
+
+    tableRows = [];
+  }
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      closeList();
+      flushTable();
+      html.push('<div class="space"></div>');
+      return;
+    }
+
+    if (line.includes("|") && line.startsWith("|")) {
+      closeList();
+      tableRows.push(line);
+      return;
+    }
+
+    flushTable();
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length, 4);
+      html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
+      return;
+    }
+
+    const list = line.match(/^[-*]\s+(.+)$/);
+    if (list) {
+      if (!listOpen) {
+        html.push("<ul>");
+        listOpen = true;
+      }
+      html.push(`<li>${inlineMarkdownToHtml(list[1])}</li>`);
+      return;
+    }
+
+    const quote = line.match(/^>\s+(.+)$/);
+    if (quote) {
+      closeList();
+      html.push(`<blockquote>${inlineMarkdownToHtml(quote[1])}</blockquote>`);
+      return;
+    }
+
+    closeList();
+    html.push(`<p>${inlineMarkdownToHtml(line)}</p>`);
+  });
+
+  closeList();
+  flushTable();
+  return html.join("\n");
+}
+
+function exportMarkdownAsPdf(title, content, courseTitle = "课程") {
+  const safeTitle = escapeHtml(title || "NoteWhale笔记");
+  const safeCourseTitle = escapeHtml(courseTitle || "课程");
+  const bodyHtml = markdownToPrintableHtml(content || "");
+  const printWindow = window.open("", "_blank");
+
+  if (!printWindow) {
+    alert("浏览器阻止了导出窗口，请允许弹窗后重试。");
+    return;
+  }
+
+  printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${safeTitle}</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    body {
+      margin: 0;
+      color: #183B63;
+      font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.75;
+      background: #fff;
+    }
+    .cover { border-bottom: 2px solid #DDE8F6; padding-bottom: 14px; margin-bottom: 22px; }
+    .brand { color: #2563EB; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { font-size: 30px; margin: 8px 0 8px; line-height: 1.25; }
+    .meta { color: #64748B; font-size: 13px; }
+    h2 { font-size: 22px; margin: 24px 0 10px; border-left: 4px solid #2563EB; padding-left: 10px; }
+    h3 { font-size: 18px; margin: 18px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 8px 0; }
+    ul { margin: 8px 0 14px; padding-left: 22px; }
+    li { margin: 5px 0; }
+    blockquote { margin: 12px 0; padding: 10px 14px; border-left: 4px solid #93C5FD; background: #F8FAFC; color: #334155; border-radius: 8px; }
+    code { background: #F1F5F9; padding: 2px 5px; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 13px; }
+    th, td { border: 1px solid #DDE8F6; padding: 8px 10px; vertical-align: top; }
+    th { background: #F1F6FF; color: #183B63; }
+    a { color: #2563EB; text-decoration: none; }
+    .space { height: 8px; }
+    .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #E2E8F0; color: #94A3B8; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="brand">NoteWhale AI Powered Notes</div>
+    <h1>${safeTitle}</h1>
+    <div class="meta">课程：${safeCourseTitle} · 导出时间：${new Date().toLocaleString()}</div>
+  </section>
+  ${bodyHtml || '<p>暂无正文</p>'}
+  <div class="footer">由 NoteWhale 生成，可在编辑器中继续修改 Markdown 源文档。</div>
+  <script>
+    window.onload = function () {
+      window.focus();
+      window.print();
+    };
+  </script>
+</body>
+</html>`);
+  printWindow.document.close();
 }
 
 function mapBackendNoteForEditor(note) {

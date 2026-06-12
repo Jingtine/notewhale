@@ -42,6 +42,9 @@ export async function generateNote({
   courseId = null,
   courseName = "课程",
   resourceName = "课程资料",
+  resourceId = null,
+  rawText = "",
+  noteStyle = "复习型",
 }) {
   return request("/api/notes/generate", {
     method: "POST",
@@ -49,6 +52,9 @@ export async function generateNote({
       courseId,
       courseName,
       resourceName,
+      resourceId,
+      rawText,
+      noteStyle,
     },
   });
 }
