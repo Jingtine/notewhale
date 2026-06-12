@@ -104,6 +104,8 @@ function CoursePage({ user = null, onLogout } = {}) {
     JSON.parse(localStorage.getItem("resources") || "[]")
   );
 
+  const [resourceUploadStatus, setResourceUploadStatus] = useState("");
+
   const [backendCourses, setBackendCourses] = useState([]);
   const [backendCourseLoading, setBackendCourseLoading] = useState(false);
 
@@ -484,7 +486,16 @@ function CoursePage({ user = null, onLogout } = {}) {
 
   async function uploadResources(event) {
     const files = Array.from(event.target.files || []);
-    if (!files.length || !course) return;
+    event.target.value = "";
+
+    if (!files.length) return;
+
+    if (!course) {
+      setResourceUploadStatus("未找到当前课程，请返回主页重新进入课程后再上传。");
+      return;
+    }
+
+    setResourceUploadStatus(`正在上传 ${files.length} 个文件...`);
 
     if (course.backendSynced) {
       try {
@@ -501,10 +512,15 @@ function CoursePage({ user = null, onLogout } = {}) {
         }
 
         saveResources([...resources, ...savedResources]);
-        event.target.value = "";
+        setResourceUploadStatus(`已上传 ${savedResources.length} 个文件，并同步到云端。`);
         return;
       } catch (error) {
-        alert(error.message || "后端资料上传失败，将改为本地临时记录");
+        const message =
+          error?.message === "Failed to fetch"
+            ? "云端上传请求失败，请检查网络或稍后重试。"
+            : error?.message || "后端资料上传失败，已改为本地临时记录。";
+
+        setResourceUploadStatus(message);
       }
     }
 
@@ -518,10 +534,11 @@ function CoursePage({ user = null, onLogout } = {}) {
       courseId: course.id,
       courseName: course.title,
       createdAt: Date.now(),
+      backendSynced: false,
     }));
 
     saveResources([...resources, ...newResources]);
-    event.target.value = "";
+    setResourceUploadStatus(`已临时添加 ${newResources.length} 个文件。本地文件可在当前浏览器会话中查看。`);
   }
 
   async function uploadDDLImage(event) {
@@ -978,6 +995,7 @@ function CoursePage({ user = null, onLogout } = {}) {
                   onGenerateNote={generateNoteFromResource}
                   onDelete={(resource) => askDelete("resource", resource)}
                   uploadResources={uploadResources}
+                  uploadStatus={resourceUploadStatus}
                 />
               )}
 
@@ -1701,6 +1719,8 @@ function CourseHeader({
   courseNotes,
   courseResources,
 }) {
+  const headerResourceInputRef = useRef(null);
+
   return (
     <div style={{ padding: "0 36px" }}>
       <div
@@ -1748,15 +1768,22 @@ function CourseHeader({
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           {activeTab === "resources" && (
-            <label style={primaryButton(colors)}>
-              上传资料
+            <>
+              <button
+                type="button"
+                onClick={() => headerResourceInputRef.current?.click()}
+                style={primaryButton(colors)}
+              >
+                上传资料
+              </button>
               <input
+                ref={headerResourceInputRef}
                 type="file"
                 multiple
                 onChange={uploadResources}
                 style={{ display: "none" }}
               />
-            </label>
+            </>
           )}
 
           {activeTab === "notes" && (
@@ -1825,7 +1852,9 @@ function SideFilter({ label, active, colors, onClick }) {
   );
 }
 
-function ResourceTab({ resources, notes, colors, searchText = "", onView, onGenerateNote, onDelete, uploadResources }) {
+function ResourceTab({ resources, notes, colors, searchText = "", onView, onGenerateNote, onDelete, uploadResources, uploadStatus = "" }) {
+  const resourceInputRef = useRef(null);
+
   return (
     <div style={contentCardStyle(colors)}>
       <div style={panelHeaderStyle}>
@@ -1845,17 +1874,40 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
             AI 生成笔记
           </button>
 
-          <label style={secondaryButton(colors)}>
+          <button
+            type="button"
+            onClick={() => resourceInputRef.current?.click()}
+            style={secondaryButton(colors)}
+          >
             上传资料
-            <input
-              type="file"
-              multiple
-              onChange={uploadResources}
-              style={{ display: "none" }}
-            />
-          </label>
+          </button>
+
+          <input
+            ref={resourceInputRef}
+            type="file"
+            multiple
+            onChange={uploadResources}
+            style={{ display: "none" }}
+          />
         </div>
       </div>
+
+      {uploadStatus && (
+        <div
+          style={{
+            marginBottom: "16px",
+            border: `1px solid ${colors.border}`,
+            background: colors.softer,
+            color: colors.text,
+            borderRadius: "14px",
+            padding: "12px 14px",
+            fontSize: "13px",
+            lineHeight: 1.7,
+          }}
+        >
+          {uploadStatus}
+        </div>
+      )}
 
       {resources.length === 0 ? (
         <EmptyState
@@ -2788,6 +2840,9 @@ function topIconButtonStyle(colors) {
     cursor: "pointer",
     fontSize: "18px",
     fontFamily: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   };
 }
 
@@ -3066,6 +3121,9 @@ function primaryButton(colors) {
     fontWeight: 700,
     fontFamily: "inherit",
     boxShadow: "0 14px 28px rgba(29,78,216,0.2)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   };
 }
 
