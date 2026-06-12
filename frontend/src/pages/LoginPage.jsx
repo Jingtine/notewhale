@@ -73,7 +73,7 @@ function LoginPage({ onLogin }) {
     }
 
     return {
-      text: API_BASE_URL.includes("127.0.0.1") || API_BASE_URL.includes("localhost") ? "本地体验模式" : "后端连接失败",
+      text: "本地体验模式",
       dot: "#3B82F6",
       bg: "#EFF6FF",
       color: "#1D4ED8",
@@ -85,7 +85,7 @@ function LoginPage({ onLogin }) {
     const cleanName = name.trim() || cleanAccount.split("@")[0] || studentId.trim();
 
     if (apiState !== "online") {
-      setError(`当前连接的后端地址不可用：${API_BASE_URL}/health。请检查 Vercel 环境变量或后端 CORS 配置。`);
+      setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
       return;
     }
 
@@ -130,49 +130,19 @@ function LoginPage({ onLogin }) {
       onLogin?.(session);
       navigate(from, { replace: true });
     } catch (error) {
-      setError(error.message || (mode === "register" ? "注册失败" : "登录失败"));
+      const message =
+        error?.message === "Failed to fetch"
+          ? "网络连接暂时异常，请稍后重试。"
+          : error?.message || (mode === "register" ? "注册失败，请检查账号信息。" : "登录失败，请检查账号或密码。");
+
+      setError(message);
     } finally {
       setLoading(false);
     }
   }
 
-  async function useDemoAccount() {
-    if (apiState !== "online") {
-      setError(`演示账号也需要后端在线。当前后端地址：${API_BASE_URL}/health`);
-      return;
-    }
 
-    const demo = {
-      account: "demo@notewhale.local",
-      password: "notewhale-demo",
-      name: "体验用户",
-      role: "体验用户",
-      studentId: "",
-    };
 
-    setLoading(true);
-    setError("");
-
-    try {
-      let session;
-
-      try {
-        session = await loginAccount({
-          account: demo.account,
-          password: demo.password,
-        });
-      } catch {
-        session = await registerAccount(demo);
-      }
-
-      onLogin?.(session);
-      navigate(from, { replace: true });
-    } catch (error) {
-      setError(error.message || "演示账号进入失败");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <div style={pageStyle}>
@@ -213,8 +183,8 @@ function LoginPage({ onLogin }) {
             </span>
             <span style={{ color: "#64748B" }}>
               {apiState === "online"
-                ? `API 已连接：${API_BASE_URL}`
-                : `当前检测地址：${API_BASE_URL}/health`}
+                ? "API 可用，后续可切换真实数据"
+                : "后端未启动时仍可完成前端演示"}
             </span>
           </div>
         </section>
@@ -240,7 +210,7 @@ function LoginPage({ onLogin }) {
               }}
             >
               <span style={{ ...smallDotStyle, background: apiBadge.dot }} />
-              {apiState === "online" ? "API" : API_BASE_URL.includes("127.0.0.1") ? "Local" : "API Error"}
+              {apiState === "online" ? "API" : "Local"}
             </span>
           </div>
 
@@ -311,16 +281,17 @@ function LoginPage({ onLogin }) {
             </div>
           )}
 
-          {error && <div style={errorStyle}>{error}</div>}
+          {error && (
+            <div style={errorStyle}>
+              <span style={errorDotStyle} />
+              <span>{error}</span>
+            </div>
+          )}
 
           <div style={actionAreaStyle}>
             <button onClick={submit} style={primaryButtonStyle} disabled={loading}>
-            {loading ? "正在处理..." : mode === "login" ? "登录鲸记" : "注册并进入"}
-          </button>
-
-          <button onClick={useDemoAccount} style={demoButtonStyle} disabled={loading}>
-            使用演示账号进入
-          </button>
+              {loading ? "正在处理..." : mode === "login" ? "登录鲸记" : "注册并进入"}
+            </button>
 
             <p style={hintStyle}>
               {mode === "login"
@@ -591,13 +562,26 @@ const inputStyle = {
 
 const errorStyle = {
   marginTop: "14px",
-  background: "#FEF2F2",
-  color: "#DC2626",
-  border: "1px solid #FECACA",
+  minHeight: "42px",
   borderRadius: "12px",
+  border: "1px solid #D6E0EF",
+  background: "#F8FAFC",
+  color: "#64748B",
   padding: "10px 12px",
   fontSize: "13px",
   lineHeight: 1.6,
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  boxSizing: "border-box",
+};
+
+const errorDotStyle = {
+  width: "7px",
+  height: "7px",
+  borderRadius: "50%",
+  background: "#F59E0B",
+  flexShrink: 0,
 };
 
 const loginTipStyle = {
@@ -637,20 +621,6 @@ const primaryButtonStyle = {
   fontSize: "15px",
   fontWeight: 850,
   boxShadow: "0 14px 28px rgba(37,99,235,0.22)",
-  fontFamily: "inherit",
-};
-
-const demoButtonStyle = {
-  width: "100%",
-  height: "44px",
-  marginTop: "12px",
-  border: "1px solid #D6E0EF",
-  borderRadius: "12px",
-  background: "#F8FAFC",
-  color: "#1D4ED8",
-  cursor: "pointer",
-  fontSize: "14px",
-  fontWeight: 800,
   fontFamily: "inherit",
 };
 
