@@ -334,11 +334,13 @@ function HomePage({ user = null, onLogout } = {}) {
   const now = new Date();
 
 /* 主页面板显示：
-   所有未过期DDL */
+   所有未完成DDL：包含未过期和已过期，方便右侧面板提示“逾期 X 天”。 */
   const activeDdls = ddls
-    .filter((ddl) => {const ddlDate = parseDDLDate(ddl.date);
-      return (!ddl.completed && ddlDate && ddlDate >= now);})
-    .sort( (a, b) =>parseDDLDate( a.date ) -parseDDLDate(  b.date  ) );
+    .filter((ddl) => {
+      const ddlDate = parseDDLDate(ddl.date);
+      return !ddl.completed && ddlDate;
+    })
+    .sort((a, b) => parseDDLDate(a.date) - parseDDLDate(b.date));
 
 /* 小铃铛提醒：
    仅近7天DDL */
@@ -351,7 +353,7 @@ function HomePage({ user = null, onLogout } = {}) {
 
         sevenDaysLater.setDate(now.getDate() + 7);
 
-        return (ddlDate &&ddlDate <=sevenDaysLater );
+        return ddlDate && ddlDate >= now && ddlDate <= sevenDaysLater;
     }
   );
 

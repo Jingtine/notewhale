@@ -798,6 +798,24 @@ function CoursePage() {
         flexDirection: "column",
       }}
     >
+      <CourseTopBar
+        colors={colors}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        course={course}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        searchText={courseSearchText}
+        setSearchText={setCourseSearchText}
+        resultCount={courseSearchResultCount}
+        searchItems={courseSearchItems}
+        onOpenSearchItem={(item) => {
+          if (item.tab) setActiveTab(item.tab);
+          if (item.path) navigate(item.path);
+        }}
+        onBack={() => navigate("/")}
+      />
+
       <main
         style={{
           flex: 1,
@@ -805,28 +823,10 @@ function CoursePage() {
           maxWidth: "none",
           width: "100%",
           margin: "0",
-          padding: "18px 28px 72px",
+          padding: "28px 28px 72px",
           boxSizing: "border-box",
         }}
       >
-        <CourseTopBar
-          colors={colors}
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-          course={course}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          searchText={courseSearchText}
-          setSearchText={setCourseSearchText}
-          resultCount={courseSearchResultCount}
-          searchItems={courseSearchItems}
-          onOpenSearchItem={(item) => {
-            if (item.tab) setActiveTab(item.tab);
-            if (item.path) navigate(item.path);
-          }}
-          onBack={() => navigate("/")}
-        />
-
         <section style={courseShellStyle(colors, darkMode)}>
           <CourseHeader
             course={course}
@@ -1086,56 +1086,50 @@ function CourseTopBar({
   return (
     <header
       style={{
-        minHeight: "74px",
-        margin: "-18px -28px 18px",
+        height: "74px",
         padding: "0 26px",
         display: "grid",
-        gridTemplateColumns: "minmax(260px, 340px) minmax(420px, 540px) auto",
+        gridTemplateColumns: "minmax(220px, 320px) minmax(420px, 540px) auto",
         alignItems: "center",
         gap: "22px",
         borderBottom: theme.border,
         background: theme.bg,
         backdropFilter: "blur(24px)",
         WebkitBackdropFilter: "blur(24px)",
-        position: "sticky",
-        top: 0,
+        position: "relative",
+        flexShrink: 0,
         zIndex: 50,
       }}
     >
-      <button
-        onClick={onBack}
+      <div
         style={{
-          border: "none",
-          background: "transparent",
           display: "flex",
           alignItems: "center",
-          gap: "14px",
+          gap: "12px",
           minWidth: 0,
-          cursor: "pointer",
-          padding: 0,
-          fontFamily: "inherit",
-          textAlign: "left",
         }}
-        title="返回主页"
       >
-        <div
+        <button
+          onClick={onBack}
+          title="返回主页"
           style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "16px",
-            background: "linear-gradient(135deg,#A78BFA,#2563EB)",
-            color: "#FFFFFF",
+            width: "38px",
+            height: "38px",
+            borderRadius: "12px",
+            border: theme.border,
+            background: theme.card,
+            color: theme.subText,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "23px",
-            fontWeight: 800,
-            boxShadow: "0 12px 24px rgba(37,99,235,0.22)",
+            cursor: "pointer",
+            fontSize: "18px",
+            fontFamily: "inherit",
             flexShrink: 0,
           }}
         >
-          {course?.title?.slice(0, 1) || "课"}
-        </div>
+          ←
+        </button>
 
         <div style={{ minWidth: 0 }}>
           <div
@@ -1167,7 +1161,7 @@ function CourseTopBar({
             鲸记 NoteWhale · 返回主页
           </div>
         </div>
-      </button>
+      </div>
 
       <div style={{ position: "relative", width: "100%" }}>
         <div
