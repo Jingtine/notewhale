@@ -1,5 +1,32 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const PROD_API_BASE_URL = "https://notewhale-backend.onrender.com";
+const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+
+function normalizeApiUrl(value) {
+  return String(value || "").trim().replace(/\/$/, "");
+}
+
+function resolveApiBaseUrl() {
+  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_BASE_URL);
+
+  if (envUrl) {
+    return envUrl;
+  }
+
+  // Deployment fallback:
+  // If Vercel did not inject VITE_API_BASE_URL correctly, still use the Render backend
+  // when the site is running on a Vercel domain.
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname || "";
+
+    if (hostname === "notewhale.vercel.app" || hostname.endsWith(".vercel.app")) {
+      return PROD_API_BASE_URL;
+    }
+  }
+
+  return LOCAL_API_BASE_URL;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const TOKEN_STORAGE_KEY = "notewhale_token";
 const USER_STORAGE_KEY = "notewhale_user";
@@ -86,6 +113,7 @@ export async function checkBackendHealth() {
       status: "offline",
       service: "notewhale-backend",
       message: error.message,
+      apiBaseUrl: API_BASE_URL,
     };
   }
 }
