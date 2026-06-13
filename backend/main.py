@@ -1517,6 +1517,25 @@ def strip_markdown_fence(value: str):
     return text_value.strip()
 
 
+def pick_lines(text: str, limit: int = 28):
+    lines = [line.strip() for line in str(text or "").split("\n") if line.strip()]
+    useful = []
+    seen = set()
+
+    for line in lines:
+        compact = " ".join(line.split())
+        if len(compact) < 4:
+            continue
+        if compact in seen:
+            continue
+        seen.add(compact)
+        useful.append(compact)
+        if len(useful) >= limit:
+            break
+
+    return useful
+
+
 def call_text_agent_for_course_note(
     course_name: str,
     resource_name: str,
@@ -1524,23 +1543,15 @@ def call_text_agent_for_course_note(
     note_style: str = "复习型",
 ):
     """
-    调用真正的文本大模型生成课程资料笔记。
-    需要配置：
-    NOTEWHALE_TEXT_API_URL
-    NOTEWHALE_TEXT_API_KEY
-    NOTEWHALE_TEXT_MODEL
-
-    默认接口按 OpenAI-compatible chat/completions 格式发送。
+    稳定演示版：不调用外部大模型，直接根据已提取正文生成结构化 Markdown 笔记。
+    作用：
+    - 避免 DeepSeek / GLM 网络超时导致前端 Failed to fetch；
+    - 先验证“资料文字提取 → 生成笔记 → 保存笔记 → 打开编辑器”完整链路；
+    - 后续再把这部分切回真正大模型即可。
     """
-    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置文本模型智能体。请设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
-        )
-
     clean_text = normalize_ai_text(resource_text, max_length=12000)
 
-    if len(clean_text) < 80:
+    if len(clean_text) < 20:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -1551,97 +1562,103 @@ def call_text_agent_for_course_note(
             ),
         )
 
-    prompt = f"""
-你是 NoteWhale 的课程资料笔记智能体。
+    lines = pick_lines(clean_text, limit=36)
+    preview = lines[:10]
+    detail_lines = lines[:24]
 
-任务：根据用户上传的课程资料正文，生成一份可编辑的 Markdown 课程笔记。
-不要输出“Demo”，不要泛泛而谈，不要编造资料里没有的信息。
-如果资料中信息不足，请明确写“资料中未给出”。
+    keywords = infer_ai_keywords(course_name, resource_name, clean_text)
+    keyword_text = "、".join(keywords[:8]) if keywords else "核心概念、知识结构、课堂重点、复习问题"
 
-课程：{course_name}
-资料：{resource_name}
-笔记类型：{note_style}
+    detail_sections = []
+    chunk_size = 4
+    for index in range(0, len(detail_lines), chunk_size):
+        chunk = detail_lines[index:index + chunk_size]
+        if not chunk:
+            continue
+        section_no = index // chunk_size + 1
+        detail_sections.append(
+            f"### {section_no}. 内容片段 {section_no}\n\n"
+            + "\n".join([f"- {item}" for item in chunk])
+            + "\n\n**复习提示：** 理解本组内容之间的因果、定义或并列关系，并结合课堂讲解补充例子。"
+        )
 
-输出要求：
-1. 只输出 Markdown 正文，不要包裹代码块。
-2. 生成“详细复习版”，不要只写大纲；要把资料内容讲清楚。
-3. 必须包含这些部分：
-   - 资料速读
-   - 知识结构
-   - 逐章/逐页精读
-   - 重点概念详解
-   - 易混淆点
-   - 可回查索引
-   - 自测题与答题要点
-   - 待补充清单
-4. “逐章/逐页精读”是主体。请按页码、章节或主题拆解，每个小节写：
-   - 本节讲什么
-   - 关键概念
-   - 概念之间的逻辑关系
-   - 可能考点
-   - 复习提醒
-5. “重点概念详解”至少选择 6-12 个概念。每个概念写含义、重要性、相关概念、易错点。
-6. 如果资料中有公式：
-   - 成体系公式请用 $...$ 包裹，例如 $Y_t = \\bar{Y} + \\alpha(P_t - E_{t-1}[P_t])$
-   - 普通符号可直接用 Unicode：≤ ≥ ≠ ≈ → ⇒ ⇔ ∑ ∫ √ ∈ ∉ ∪ ∩ ∀ ∃ ∴ ∵
-   - 公式后必须用中文解释符号含义。
-7. 不要编造资料中没有的信息；资料中缺失的内容写“资料中未给出”。
-8. 篇幅目标：1200-2200 字，优先稳定生成，不要无限扩写。
-9. 内容必须可直接进入编辑器继续修改，并可导出为 PDF。
+    if not detail_sections:
+        detail_sections.append("### 1. 资料正文\n\n" + clean_text[:800])
 
-资料正文如下：
-{clean_text}
+    note = f"""# {resource_name}｜课程资料笔记
+
+> 课程：{course_name or "未命名课程"}  
+> 生成方式：稳定演示版，基于资料可提取正文自动整理  
+> 建议：生成后可在编辑器中继续补充老师课堂强调内容。
+
+## 一、资料速读
+
+本资料主要围绕 **{course_name or resource_name}** 展开。根据文件中可读取的文字内容，初步可抓住以下关键词：
+
+**{keyword_text}**
+
+资料中的高频或靠前内容包括：
+
+{chr(10).join([f"- {item}" for item in preview]) if preview else "- 暂未读取到明显段落，但文件已被识别为可处理资料。"}
+
+## 二、知识结构
+
+可以按下面的方式整理复习：
+
+1. **基本概念**：先明确材料中出现的核心术语、定义和基本判断。
+2. **逻辑关系**：再梳理概念之间的因果关系、对比关系或层级关系。
+3. **重点内容**：把老师可能强调、作业可能涉及的内容单独标记。
+4. **应用场景**：结合例题、案例或课堂讨论理解材料内容。
+5. **待补充部分**：把资料没有展开但考试或作业可能需要的内容继续补全。
+
+## 三、逐段精读
+
+{chr(10).join(detail_sections)}
+
+## 四、重点概念整理
+
+以下概念需要优先复习：
+
+{chr(10).join([f"- **{kw}**：结合资料原文，补充定义、例子、易错点和应用场景。" for kw in keywords[:8]]) if keywords else "- **核心概念**：请根据课堂讲解补充定义、例子与易错点。"}
+
+## 五、易混淆点
+
+- 注意区分“定义性内容”和“解释性内容”：前者要准确记忆，后者要理解逻辑。
+- 注意区分“并列关系”和“因果关系”：复习时不要只背关键词，要能说清楚为什么。
+- 如果资料中出现公式、模型或流程图，建议补充每个符号、变量或步骤的含义。
+- 如果资料是 PPT，页面上的短句往往只是提示语，需要结合课堂讲解补全。
+
+## 六、可回查索引
+
+- 资料名称：{resource_name}
+- 课程名称：{course_name or "未命名课程"}
+- 推荐回查内容：标题页、定义页、图表页、结论页、老师强调页。
+- 复习顺序：先看关键词 → 再看逐段精读 → 最后补充课堂笔记。
+
+## 七、自测题与答题要点
+
+1. 这份资料的主题是什么？  
+   **答题要点：** 用 2-3 句话概括资料核心问题和主要内容。
+
+2. 资料中最重要的 3 个概念是什么？  
+   **答题要点：** 写出概念名称、定义、与其他概念的关系。
+
+3. 资料中哪些内容最可能成为作业或考试考点？  
+   **答题要点：** 优先关注定义、模型、对比、原因、影响和案例分析。
+
+4. 如果向同学讲解这份资料，应该按什么顺序讲？  
+   **答题要点：** 先背景，后概念，再逻辑，最后举例或总结。
+
+## 八、待补充清单
+
+- [ ] 补充老师课堂强调内容
+- [ ] 补充教材页码或参考章节
+- [ ] 补充例题、案例或图表解释
+- [ ] 标记作业 / 考试重点
+- [ ] 检查公式、术语和专有名词是否准确
 """
 
-    body = {
-        "model": TEXT_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一个课程资料总结与复习笔记生成智能体，擅长把 PDF/PPT/Word 资料整理为可编辑 Markdown 笔记。",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0.3,
-        "max_tokens": 3200,
-    }
-
-    request = urllib.request.Request(
-        TEXT_API_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {TEXT_API_KEY}",
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except Exception as error:
-        error_text = str(error)
-
-        if "429" in error_text or "Too Many Requests" in error_text:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    "文本模型请求过于频繁或资料过长，已触发免费额度限流。"
-                    "请等待 1-3 分钟后重试，或换用页数更少的资料。"
-                ),
-            )
-
-        raise HTTPException(status_code=502, detail=f"文本模型调用失败：{error}")
-
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except Exception:
-        raise HTTPException(status_code=502, detail="文本模型返回格式异常，未找到 message.content。")
-
-    return strip_markdown_fence(content)
+    return note.strip()
 
 
 
