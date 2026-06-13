@@ -1172,16 +1172,11 @@ function HomePage({ user = null, onLogout } = {}) {
       let matched = false;
 
       if (backendIdText) {
-        matched =
-          noteBackendCourseId === backendIdText ||
-          noteCourseId === `api-${backendIdText}` ||
-          noteCourseId === courseIdText;
+        // 后端课程只按后端 courseId 统计，避免把本地缓存里的旧同名/旧 api-id 笔记重复算进去。
+        matched = noteBackendCourseId === backendIdText;
       } else {
-        matched =
-          noteCourseId === courseIdText ||
-          (!noteCourseId &&
-            !noteBackendCourseId &&
-            String(note.courseName || "") === String(course.title || ""));
+        // 本地课程没有 backendId 时，才按本地 courseId 统计。
+        matched = noteCourseId === courseIdText;
       }
 
       if (matched) {
@@ -1225,16 +1220,11 @@ function HomePage({ user = null, onLogout } = {}) {
       let matched = false;
 
       if (backendIdText) {
-        matched =
-          resourceBackendCourseId === backendIdText ||
-          resourceCourseId === `api-${backendIdText}` ||
-          resourceCourseId === courseIdText;
+        // 后端课程只按后端 courseId 统计，避免把本地缓存里的旧资料重复算进去。
+        matched = resourceBackendCourseId === backendIdText;
       } else {
-        matched =
-          resourceCourseId === courseIdText ||
-          (!resourceCourseId &&
-            !resourceBackendCourseId &&
-            String(resource.courseName || "") === String(course.title || ""));
+        // 本地课程没有 backendId 时，才按本地 courseId 统计。
+        matched = resourceCourseId === courseIdText;
       }
 
       if (matched) {
