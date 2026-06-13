@@ -83,5 +83,4 @@ class Resource(Base):
     course_id = Column(Integer, nullable=True)
     course_name = Column(String, default="")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    extracted_text = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
