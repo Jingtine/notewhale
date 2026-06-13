@@ -1,1251 +1,2676 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { getCourses } from "../api/courseApi";
+import {useState,useEffect} from "react";
+import Sidebar from "../components/Sidebar";
+import Header from "../components/Header";
+import Footer from "../components/Footer";
+import DDLPanel from "../components/DDLPanel";
+import FolderSection from "../components/FolderSection";
+import {useNavigate} from "react-router-dom";
 import {
-  getNotes as getBackendNotes,
-  updateNote as updateBackendNote,
-} from "../api/noteApi";
+  createCourse as createBackendCourse,
+  updateCourse as updateBackendCourse,
+  deleteCourse as deleteBackendCourse,
+  getDeletedCourses as getBackendDeletedCourses,
+  restoreDeletedCourse as restoreBackendDeletedCourse,
+  permanentlyDeleteCourse as permanentlyDeleteBackendCourse,
+} from "../api/courseApi";
+import {
+  getFolders as getBackendFolders,
+  createFolder as createBackendFolder,
+  updateFolder as updateBackendFolder,
+  deleteFolder as deleteBackendFolder,
+} from "../api/folderApi";
+import {
+  getDdls,
+  createDdl as createBackendDdl,
+  recognizeDdlWithVisionAgent,
+} from "../api/ddlApi";
+import { getApiBaseUrl } from "../api/apiClient";
 
-function NoteEditorPage() {
-  const navigate = useNavigate();
-  const textareaRef = useRef(null);
-  const previewRef = useRef(null);
-  const { courseId, noteId } = useParams();
+function getUserStorageKey(user, key) {
+  const rawUserId =
+    user?.id ||
+    user?.account ||
+    user?.email ||
+    localStorage.getItem("notewhale_current_user_id") ||
+    "guest";
 
-  const darkMode = JSON.parse(localStorage.getItem("darkMode") || "false");
+  const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `notewhale_user_${safeUserId}_${key}`;
+}
 
-  const isBackendCourseRoute = String(courseId).startsWith("api-");
-  const backendCourseId = isBackendCourseRoute
-    ? String(courseId).replace(/^api-/, "")
-    : null;
+function readUserStorageArray(user, key, fallback = []) {
+  try {
+    const value = localStorage.getItem(getUserStorageKey(user, key));
+    if (!value) return fallback;
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-  const isBackendNoteRoute = String(noteId).startsWith("api-note-");
-  const backendNoteId = isBackendNoteRoute
-    ? String(noteId).replace(/^api-note-/, "")
-    : null;
+function writeUserStorageArray(user, key, value) {
+  localStorage.setItem(getUserStorageKey(user, key), JSON.stringify(value));
+}
 
-  const folders = JSON.parse(
-    localStorage.getItem("courseFolders") ||
-      localStorage.getItem("folders") ||
-      "[]"
+function HomePage({ user = null, onLogout } = {}) {
+  const [selectedFolder, setSelectedFolder] = useState("全部");
+  const [searchText, setSearchText] = useState("");
+  const [darkMode,setDarkMode,] = useState(() => {
+    const saved =localStorage.getItem("darkMode");
+    return saved
+    ? JSON.parse(saved): false;});
+
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+
+  const [showCourseModal, setShowCourseModal] = useState(false);
+  const [newCourseName, setNewCourseName] = useState("");
+  const [targetFolderId, setTargetFolderId] = useState("");
+
+  const [deletedCourses,setDeletedCourses,] = useState(() =>
+    readUserStorageArray(user, "deletedCourses", [])
   );
 
-  const allCourses = folders.flatMap(
-    (folder) => folder.courses || folder.items || []
-  );
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteCourseId, setPendingDeleteCourseId] = useState(null);
 
-  const localCourse = allCourses.find(
-    (item) => String(item.id) === String(courseId)
-  );
+  const [showFolderDeleteConfirm, setShowFolderDeleteConfirm] = useState(false);
+  const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState(null);
+
+  const [showFolderRenameModal, setShowFolderRenameModal] = useState(false);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameFolderName, setRenameFolderName] = useState("");
+
+  const [showDDLModal, setShowDDLModal] = useState(false);
+  const [newDDLTitle, setNewDDLTitle] = useState("");
+  const [newDDLDate, setNewDDLDate] = useState("");
+  const [newDDLCourseId, setNewDDLCourseId] = useState("");
+  const [newDDLPlatform, setNewDDLPlatform] = useState("");
+  const [newDDLNote, setNewDDLNote] = useState("");
+  const [newDDLPreview, setNewDDLPreview] = useState("");
+
+  const navigate =useNavigate();
+
+  const [showDataStatus, setShowDataStatus] = useState(false);
+  const [apiStatus, setApiStatus] = useState({
+    checking: true,
+    online: false,
+    message: "正在检测后端连接",
+  });
 
   const [backendCourses, setBackendCourses] = useState([]);
-  const [backendNotes, setBackendNotes] = useState([]);
-  const [backendLoading, setBackendLoading] = useState(
-    isBackendCourseRoute || isBackendNoteRoute
+  const [backendCourseMessage, setBackendCourseMessage] = useState("等待同步课程");
+  const [backendDdlMessage, setBackendDdlMessage] = useState("等待同步 DDL");
+
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renamingCourse, setRenamingCourse] = useState(null);
+  const [renameCourseName, setRenameCourseName] = useState("");
+  const [renameCourseFolderId, setRenameCourseFolderId] = useState("");
+
+  const [folders, setFolders] =
+    useState(() => readUserStorageArray(user, "folders", []));
+
+  const [deletedFolderIds, setDeletedFolderIds] = useState(() =>
+    readUserStorageArray(user, "deletedFolderIds", [])
   );
 
-  const backendCourse = isBackendCourseRoute
-    ? backendCourses.find((item) => String(item.id) === String(backendCourseId))
-    : null;
-
-  const course = localCourse ||
-    (backendCourse
-      ? {
-          id: `api-${backendCourse.id}`,
-          backendId: backendCourse.id,
-          title: backendCourse.title,
-          starred: Boolean(backendCourse.starred),
-          backendSynced: true,
-        }
-      : null);
-
-  const [notes, setNotes] = useState(() =>
-    JSON.parse(localStorage.getItem("notes") || "[]")
+  const [ddls, setDdls] = useState(() =>
+    readUserStorageArray(user, "ddls", [])
   );
 
-  const allNotes = useMemo(
-    () => [...notes, ...backendNotes],
-    [notes, backendNotes]
-  );
+  async function addFolder() {
+    const title = newFolderName.trim();
+    if (!title) return;
 
-  const note = allNotes.find((item) => String(item.id) === String(noteId));
-
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [editorMode, setEditorMode] = useState("document");
-  const [symbolPanelOpen, setSymbolPanelOpen] = useState(false);
-  const [imageModalOpen, setImageModalOpen] = useState(false);
-  const [imageUrl, setImageUrl] = useState("https://");
-  const [savedTip, setSavedTip] = useState("已同步");
-  const [activeHeading, setActiveHeading] = useState("");
-
-  useEffect(() => {
-    if (!isBackendCourseRoute && !isBackendNoteRoute) {
-      setBackendLoading(false);
-      return;
-    }
-
-    let alive = true;
-    setBackendLoading(true);
-
-    async function loadBackendData() {
+    if (apiStatus.online) {
       try {
-        const [courseData, noteData] = await Promise.all([
-          getCourses(),
-          getBackendNotes(),
-        ]);
+        const savedFolder = await createBackendFolder({ title });
+        const mappedFolder = mapBackendFolder(savedFolder);
 
-        if (!alive) return;
-
-        setBackendCourses(Array.isArray(courseData) ? courseData : []);
-        setBackendNotes(
-          Array.isArray(noteData) ? noteData.map(mapBackendNoteForEditor) : []
-        );
-      } catch {
-        if (!alive) return;
-        setBackendCourses([]);
-        setBackendNotes([]);
-      } finally {
-        if (alive) setBackendLoading(false);
+        setFolders((prevFolders) => [...prevFolders, mappedFolder]);
+        setSelectedFolder(mappedFolder.title);
+        setBackendCourseMessage("文件夹已同步到后端");
+        setNewFolderName("");
+        setShowFolderModal(false);
+        return;
+      } catch (error) {
+        alert(error.message || "后端文件夹创建失败，已切换为本地保存");
       }
     }
 
-    loadBackendData();
+    const newFolder = {
+      id: Date.now(),
+      title,
+      courses: [],
+    };
+
+    setFolders([...folders, newFolder]);
+    setSelectedFolder(newFolder.title);
+    setNewFolderName("");
+    setShowFolderModal(false);
+  }
+
+  function openCourseModal(folderId = "") {
+    const realFolders = folders.filter((folder) => isRealFolder(folder));
+    const selectedRealFolder = realFolders.find(
+      (folder) => folder.title === selectedFolder
+    );
+
+    const defaultFolderId =
+      folderId ||
+      selectedRealFolder?.id ||
+      realFolders[0]?.id ||
+      "__unassigned";
+
+    setTargetFolderId(String(defaultFolderId));
+    setShowCourseModal(true);
+  }
+
+  async function addCourse() {
+    const safeTargetFolderId = targetFolderId || "__unassigned";
+    if (!newCourseName.trim()) return;
+
+    const title = newCourseName.trim();
+
+    if (String(safeTargetFolderId) === "__unassigned") {
+      if (apiStatus.online) {
+        try {
+          const savedCourse = await createBackendCourse({
+            title,
+            starred: false,
+            folderId: null,
+            folderName: "",
+          });
+
+          const mappedCourse = mapBackendCourse(savedCourse);
+
+          setFolders((prevFolders) =>
+            addCourseToUnassignedFolder(prevFolders, mappedCourse)
+          );
+          setBackendCourseMessage("未归属课程已同步到后端");
+          setNewCourseName("");
+          setTargetFolderId("");
+          setShowCourseModal(false);
+          return;
+        } catch (error) {
+          alert(error.message || "后端课程创建失败，已切换为本地保存");
+        }
+      }
+
+      const newCourse = {
+        id: Date.now(),
+        title,
+        starred: false,
+        noteCount: 0,
+        ddlCount: 0,
+      };
+
+      setFolders((prevFolders) =>
+        addCourseToUnassignedFolder(prevFolders, newCourse)
+      );
+      setNewCourseName("");
+      setTargetFolderId("");
+      setShowCourseModal(false);
+      return;
+    }
+
+    const targetFolder = folders.find(
+      (folder) => String(folder.id) === String(safeTargetFolderId)
+    );
+
+    if (!targetFolder) return;
+
+    if (apiStatus.online) {
+      try {
+        let backendFolder = targetFolder;
+
+        // 本地旧文件夹还没有 backendId 时，先在后端创建对应文件夹。
+        if (!targetFolder.backendSynced || !targetFolder.backendId) {
+          const savedFolder = await createBackendFolder({
+            title: targetFolder.title,
+          });
+          backendFolder = mapBackendFolder(savedFolder);
+        }
+
+        const savedCourse = await createBackendCourse({
+          title,
+          starred: false,
+          folderId: backendFolder.backendId,
+          folderName: backendFolder.title,
+        });
+
+        const mappedCourse = mapBackendCourse(savedCourse);
+
+        setFolders((prevFolders) =>
+          prevFolders.map((folder) => {
+            if (String(folder.id) !== String(targetFolderId)) return folder;
+
+            return {
+              ...folder,
+              id: backendFolder.id,
+              backendId: backendFolder.backendId,
+              backendSynced: true,
+              title: backendFolder.title,
+              courses: [
+                ...(folder.courses || []).filter(
+                  (course) => String(course.title) !== String(mappedCourse.title)
+                ),
+                mappedCourse,
+              ],
+            };
+          })
+        );
+
+        setBackendCourseMessage("课程与所属文件夹已同步到后端");
+        setNewCourseName("");
+        setTargetFolderId("");
+        setShowCourseModal(false);
+        return;
+      } catch (error) {
+        alert(error.message || "后端课程创建失败，已切换为本地保存");
+      }
+    }
+
+    const newCourse = {
+      id: Date.now(),
+      title,
+      starred: false,
+      noteCount: 0,
+      ddlCount: 0,
+    };
+
+    setFolders(
+      folders.map((folder) =>
+        String(folder.id) === String(safeTargetFolderId)
+          ? { ...folder, courses: [...folder.courses, newCourse] }
+          : folder
+      )
+    );
+
+    setNewCourseName("");
+    setTargetFolderId("");
+    setShowCourseModal(false);
+  }
+
+  // function parseDDLDate(dateText) {
+  //   if (!dateText) return null;
+
+  //   const normalized = dateText.replace(" ", "T");
+  //   const date = new Date(normalized);
+
+  //   return Number.isNaN(date.getTime()) ? null : date;
+  // }
+
+  /* DDL 时间解析 */
+  function parseDDLDate(dateText) {
+    if (!dateText) return null;
+
+    const normalized = dateText.replace(" ", "T");
+
+    const date = new Date( normalized );
+
+    return Number.isNaN(date.getTime())? null: date;}
+
+  const now = new Date();
+
+/* 主页面板显示：
+   所有未完成DDL：包含未过期和已过期，方便右侧面板提示“逾期 X 天”。 */
+  const activeDdls = ddls
+    .filter((ddl) => {
+      const ddlDate = parseDDLDate(ddl.date);
+      return !ddl.completed && ddlDate;
+    })
+    .sort((a, b) => parseDDLDate(a.date) - parseDDLDate(b.date));
+
+/* 小铃铛提醒：
+   仅近7天DDL */
+  const upcomingDdls =
+    activeDdls.filter(
+      (ddl) => {
+        const ddlDate =parseDDLDate(ddl.date);
+
+        const sevenDaysLater = new Date();
+
+        sevenDaysLater.setDate(now.getDate() + 7);
+
+        return ddlDate && ddlDate >= now && ddlDate <= sevenDaysLater;
+    }
+  );
+
+
+
+  async function addDDL() {
+    if (!newDDLTitle.trim() || !newDDLDate.trim()) return;
+
+    const selectedCourse = allCourses.find(
+      (course) => String(course.id) === String(newDDLCourseId)
+    );
+
+    const normalizedDate = newDDLDate.replace("T", " ");
+
+    const baseDDL = {
+      title: newDDLTitle.trim(),
+      date: normalizedDate,
+      platform: newDDLPlatform.trim(),
+      note: newDDLNote.trim(),
+      courseName: selectedCourse ? selectedCourse.title : "未归属课程",
+      courseId: selectedCourse ? selectedCourse.id : null,
+      completed: false,
+      source: newDDLPreview ? "图片识别" : "手动新建",
+    };
+
+    if (apiStatus.online) {
+      try {
+        const savedDdl = await createBackendDdl({
+          ...baseDDL,
+          // 后端只接收数据库课程 id；本地课程不强行写入 courseId，避免和后端课程 id 冲突。
+          courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
+          courseName: baseDDL.courseName,
+        });
+
+        const nextDdls = [mapBackendDdl(savedDdl), ...ddls];
+        setDdls(nextDdls);
+        setBackendDdlMessage(`已同步 ${nextDdls.filter((ddl) => ddl.backendSynced).length} 条 DDL`);
+        resetDDLModal();
+        return;
+      } catch (error) {
+        alert(error.message || "后端 DDL 创建失败，已切换为本地保存");
+      }
+    }
+
+    const newDDL = {
+      id: Date.now(),
+      ...baseDDL,
+    };
+
+    setDdls([...ddls, newDDL]);
+    resetDDLModal();
+  }
+
+  async function uploadDDLImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setNewDDLPreview(URL.createObjectURL(file));
+
+    const selectedCourse =
+      allCourses.find((course) => String(course.id) === String(newDDLCourseId)) ||
+      allCourses[0] ||
+      null;
+
+    if (selectedCourse && !newDDLCourseId) {
+      setNewDDLCourseId(String(selectedCourse.id));
+    }
+
+    try {
+      const result = await recognizeDdlWithVisionAgent({
+        file,
+        courseId: selectedCourse?.backendSynced
+          ? selectedCourse.backendId
+          : null,
+        courseName: selectedCourse?.title || "未归属课程",
+      });
+
+      setNewDDLTitle(result.title || "");
+      setNewDDLDate(toDatetimeLocalValue(result.date) || "");
+      setNewDDLPlatform(result.platform || "");
+      setNewDDLNote(result.note || "");
+    } catch (error) {
+      alert(error.message || "视觉模型识别失败，请检查智能体配置");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function resetDDLModal() {
+    setShowDDLModal(false);
+    setNewDDLTitle("");
+    setNewDDLDate("");
+    setNewDDLCourseId("");
+    setNewDDLPlatform("");
+    setNewDDLNote("");
+    setNewDDLPreview("");
+  }
+
+  async function toggleStarCourse(courseId) {
+    const targetCourse = allCourses.find(
+      (course) => String(course.id) === String(courseId)
+    );
+    const nextStarred = !targetCourse?.starred;
+
+    setFolders(
+      folders.map((folder) => ({
+        ...folder,
+        courses: folder.courses.map((course) =>
+          String(course.id) === String(courseId)
+            ? { ...course, starred: nextStarred }
+            : course
+        ),
+      }))
+    );
+
+    if (targetCourse?.backendSynced && targetCourse.backendId) {
+      try {
+        await updateBackendCourse(targetCourse.backendId, {
+          starred: nextStarred,
+        });
+      } catch {
+        setBackendCourseMessage("收藏状态暂未同步到后端");
+      }
+    }
+  }
+
+  function openRenameCourseModal(courseId, currentName) {
+    const currentFolder = folders.find((folder) =>
+      (folder.courses || []).some((course) => String(course.id) === String(courseId))
+    );
+
+    setRenamingCourse(courseId);
+    setRenameCourseName(currentName);
+    setRenameCourseFolderId(currentFolder ? String(currentFolder.id) : "__unassigned");
+    setShowRenameModal(true);
+  }
+
+  async function confirmRenameCourse() {
+    if (!renameCourseName.trim() || !renamingCourse) return;
+
+    const newName = renameCourseName.trim();
+    const targetCourse = allCourses.find(
+      (course) => String(course.id) === String(renamingCourse)
+    );
+
+    if (!targetCourse) return;
+
+    const oldFolder = folders.find((folder) =>
+      (folder.courses || []).some((course) => String(course.id) === String(renamingCourse))
+    );
+
+    const moveToUnassigned = String(renameCourseFolderId) === "__unassigned";
+    const selectedFolder = moveToUnassigned
+      ? null
+      : folders.find((folder) => String(folder.id) === String(renameCourseFolderId));
+
+    if (!moveToUnassigned && !selectedFolder) return;
+
+    let backendFolder = selectedFolder;
+
+    if (targetCourse?.backendSynced && targetCourse.backendId) {
+      try {
+        if (!moveToUnassigned && selectedFolder && (!selectedFolder.backendSynced || !selectedFolder.backendId)) {
+          const savedFolder = await createBackendFolder({ title: selectedFolder.title });
+          backendFolder = mapBackendFolder(savedFolder);
+        }
+
+        await updateBackendCourse(targetCourse.backendId, {
+          title: newName,
+          folderId: moveToUnassigned ? null : backendFolder?.backendId,
+          folderName: moveToUnassigned ? "" : backendFolder?.title,
+        });
+
+        setBackendCourseMessage("课程信息已同步到后端");
+      } catch (error) {
+        alert(error.message || "后端课程编辑失败");
+        return;
+      }
+    }
+
+    const editedCourse = {
+      ...targetCourse,
+      title: newName,
+      folderId: moveToUnassigned ? null : backendFolder?.id,
+      backendFolderId: moveToUnassigned ? null : backendFolder?.backendId || null,
+      folderName: moveToUnassigned ? "" : backendFolder?.title || "",
+    };
+
+    let nextFolders = folders.map((folder) => ({
+      ...folder,
+      ...(backendFolder && String(folder.id) === String(selectedFolder?.id)
+        ? {
+            id: backendFolder.id,
+            backendId: backendFolder.backendId,
+            backendSynced: backendFolder.backendSynced,
+            title: backendFolder.title,
+          }
+        : {}),
+      courses: (folder.courses || []).filter(
+        (course) => String(course.id) !== String(renamingCourse)
+      ),
+    }));
+
+    if (moveToUnassigned) {
+      nextFolders = addCourseToUnassignedFolder(nextFolders, editedCourse);
+    } else {
+      nextFolders = nextFolders.map((folder) =>
+        String(folder.id) === String(backendFolder?.id)
+          ? {
+              ...folder,
+              courses: [...(folder.courses || []), editedCourse],
+            }
+          : folder
+      );
+    }
+
+    setFolders(nextFolders);
+
+    setDdls(ddls.map((ddl) =>
+      String(ddl.courseId) === String(renamingCourse)
+        ? { ...ddl, courseName: newName }
+        : ddl
+    ));
+
+    if (selectedFolder === oldFolder?.title && oldFolder?.courses?.length === 1) {
+      setSelectedFolder("全部");
+    }
+
+    setShowRenameModal(false);
+    setRenamingCourse(null);
+    setRenameCourseName("");
+    setRenameCourseFolderId("");
+}
+
+  // function renameCourse(courseId, newName) {
+  //   setFolders(
+  //     folders.map((folder) => ({
+  //       ...folder,
+  //       courses: folder.courses.map((course) =>
+  //         course.id === courseId
+  //           ? { ...course, title: newName }
+  //           : course
+  //       ),
+  //     }))
+  //   );
+  // }
+
+  function requestDeleteCourse(courseId) {
+    setPendingDeleteCourseId(courseId);
+    setShowDeleteConfirm(true);
+  }
+
+  async function confirmDeleteCourse() {
+    let deletedCourse = null;
+
+    folders.forEach((folder) => {
+      (folder.courses || []).forEach((course) => {
+        if (String(course.id) === String(pendingDeleteCourseId)) {
+          deletedCourse = {
+            ...course,
+            folderId: folder.id,
+            folderTitle: folder.title,
+            backendFolderId: folder.backendId || course.backendFolderId || null,
+            deletedAt: Date.now(),
+            backendDeleted: Boolean(course.backendSynced),
+          };
+        }
+      });
+    });
+
+    if (!deletedCourse) {
+      setPendingDeleteCourseId(null);
+      setShowDeleteConfirm(false);
+      return;
+    }
+
+    if (deletedCourse.backendSynced && deletedCourse.backendId) {
+      try {
+        await deleteBackendCourse(deletedCourse.backendId);
+        setBackendCourseMessage("课程已进入数据库回收站");
+      } catch (error) {
+        alert(error.message || "后端课程移入回收站失败");
+        return;
+      }
+    }
+
+    const updatedFolders = folders.map((folder) => ({
+      ...folder,
+      courses: (folder.courses || []).filter(
+        (course) => String(course.id) !== String(pendingDeleteCourseId)
+      ),
+    }));
+
+    setFolders(updatedFolders);
+
+    setDeletedCourses([
+      ...deletedCourses.filter(
+        (course) => String(course.id) !== String(deletedCourse.id)
+      ),
+      deletedCourse,
+    ]);
+
+    setDdls(
+      ddls.map((ddl) =>
+        String(ddl.courseId) === String(deletedCourse.id)
+          ? {
+              ...ddl,
+              previousCourseId: deletedCourse.id,
+              previousCourseName: deletedCourse.title,
+              courseId: null,
+              courseName: "未归属课程",
+            }
+          : ddl
+      )
+    );
+
+    setPendingDeleteCourseId(null);
+    setShowDeleteConfirm(false);
+  }
+
+  async function restoreCourse(courseId) {
+    const courseToRestore = deletedCourses.find(
+      (course) => String(course.id) === String(courseId)
+    );
+
+    if (!courseToRestore) return;
+
+    if (courseToRestore.backendDeleted && courseToRestore.backendId) {
+      try {
+        const restored = await restoreBackendDeletedCourse(courseToRestore.backendId, {
+          folderId: courseToRestore.backendFolderId || null,
+          folderName:
+            courseToRestore.folderTitle ||
+            courseToRestore.folderName ||
+            "恢复的课程",
+        });
+
+        const mappedCourse = mapBackendCourse(restored);
+
+        setFolders((prevFolders) =>
+          placeRestoredBackendCourse(
+            prevFolders,
+            mappedCourse,
+            courseToRestore.folderTitle || courseToRestore.folderName || "恢复的课程"
+          )
+        );
+
+        setBackendCourseMessage("课程已从数据库回收站恢复");
+      } catch (error) {
+        alert(error.message || "后端课程恢复失败");
+        return;
+      }
+    } else {
+      const restoredCourse = {
+        id: courseToRestore.id,
+        title: courseToRestore.title,
+        starred: courseToRestore.starred,
+        noteCount: courseToRestore.noteCount || 0,
+        ddlCount: courseToRestore.ddlCount || 0,
+        backendSynced: false,
+      };
+
+      const targetFolderExists = folders.some(
+        (folder) => String(folder.id) === String(courseToRestore.folderId)
+      );
+
+      if (targetFolderExists) {
+        setFolders(
+          folders.map((folder) =>
+            String(folder.id) === String(courseToRestore.folderId)
+              ? {
+                  ...folder,
+                  courses: [...(folder.courses || []), restoredCourse],
+                }
+              : folder
+          )
+        );
+      } else {
+        setFolders([
+          ...folders,
+          {
+            id: Date.now(),
+            title: courseToRestore.folderTitle || "恢复的课程",
+            courses: [restoredCourse],
+          },
+        ]);
+      }
+    }
+
+    setDdls(
+      ddls.map((ddl) =>
+        String(ddl.previousCourseId) === String(courseToRestore.id)
+          ? {
+              ...ddl,
+              courseId: courseToRestore.id,
+              courseName: courseToRestore.title,
+              previousCourseId: null,
+              previousCourseName: null,
+            }
+          : ddl
+      )
+    );
+
+    setDeletedCourses(
+      deletedCourses.filter(
+        (course) => String(course.id) !== String(courseId)
+      )
+    );
+  }
+
+  async function permanentDeleteCourse(courseId) {
+    if (!window.confirm("确定要彻底删除这门课程吗？此操作不可恢复。")) return;
+
+    const targetCourse = deletedCourses.find(
+      (course) => String(course.id) === String(courseId)
+    );
+
+    if (targetCourse?.backendDeleted && targetCourse.backendId) {
+      try {
+        await permanentlyDeleteBackendCourse(targetCourse.backendId);
+        setBackendCourseMessage("课程已从数据库回收站彻底删除");
+      } catch (error) {
+        alert(error.message || "后端课程彻底删除失败");
+        return;
+      }
+    }
+
+    setDeletedCourses(
+      deletedCourses.filter((course) => String(course.id) !== String(courseId))
+    );
+  }
+
+  function openRenameFolderModal(folderId) {
+    const folder = folders.find(
+      (item) => String(item.id) === String(folderId)
+    );
+
+    if (!folder) return;
+
+    setRenamingFolderId(folderId);
+    setRenameFolderName(folder.title || "");
+    setShowFolderRenameModal(true);
+  }
+
+  async function confirmRenameFolder() {
+    const nextTitle = renameFolderName.trim();
+
+    if (!nextTitle || !renamingFolderId) return;
+
+    const folderToRename = folders.find(
+      (folder) => String(folder.id) === String(renamingFolderId)
+    );
+
+    if (!folderToRename) return;
+
+    if (folderToRename.backendSynced && folderToRename.backendId) {
+      try {
+        await updateBackendFolder(folderToRename.backendId, {
+          title: nextTitle,
+        });
+        setBackendCourseMessage("文件夹名称已同步到后端");
+      } catch (error) {
+        alert(error.message || "后端文件夹重命名失败");
+        return;
+      }
+    }
+
+    setFolders(
+      folders.map((folder) =>
+        String(folder.id) === String(renamingFolderId)
+          ? {
+              ...folder,
+              title: nextTitle,
+              courses: (folder.courses || []).map((course) => ({
+                ...course,
+                folderName: nextTitle,
+              })),
+            }
+          : folder
+      )
+    );
+
+    if (selectedFolder === folderToRename.title) {
+      setSelectedFolder(nextTitle);
+    }
+
+    setShowFolderRenameModal(false);
+    setRenamingFolderId(null);
+    setRenameFolderName("");
+  }
+
+  function requestDeleteFolder(folderId) {
+    setPendingDeleteFolderId(folderId);
+    setShowFolderDeleteConfirm(true);
+  }
+
+  async function confirmDeleteFolder() {
+    const folderToDelete = folders.find(
+      (folder) => String(folder.id) === String(pendingDeleteFolderId)
+    );
+
+    if (!folderToDelete) return;
+
+    const deletedFromFolder = (folderToDelete.courses || []).map((course) => ({
+      ...course,
+      folderId: folderToDelete.id,
+      folderTitle: folderToDelete.title,
+      deletedAt: Date.now(),
+      backendDeleted: Boolean(course.backendSynced),
+      backendFolderId: folderToDelete.backendId || course.backendFolderId || null,
+    }));
+
+    const backendFolderId = folderToDelete.backendId
+      ? String(folderToDelete.backendId)
+      : null;
+
+    let nextBackendMessage = "文件夹已删除";
+
+    if (folderToDelete.backendSynced && backendFolderId) {
+      try {
+        await deleteBackendFolder(backendFolderId, {
+          deleteCourses: true,
+        });
+
+        nextBackendMessage = "文件夹已从云端删除，课程已进入回收站";
+      } catch (error) {
+        console.warn("Folder cloud delete failed. Keep a local tombstone first.", error);
+
+        setDeletedFolderIds((prevIds) => {
+          const nextIds = Array.from(new Set([...prevIds, backendFolderId]));
+          writeUserStorageArray(user, "deletedFolderIds", nextIds);
+          return nextIds;
+        });
+
+        nextBackendMessage =
+          "云端删除暂未同步，已先从当前页面移除。刷新后不会在本机恢复。";
+      }
+    }
+
+    setDeletedCourses((prevDeletedCourses) => [
+      ...prevDeletedCourses,
+      ...deletedFromFolder,
+    ]);
+
+    setFolders((prevFolders) =>
+      prevFolders.filter(
+        (folder) => String(folder.id) !== String(pendingDeleteFolderId)
+      )
+    );
+
+    if (selectedFolder === folderToDelete.title) {
+      setSelectedFolder("全部");
+    }
+
+    setBackendCourseMessage(nextBackendMessage);
+    setPendingDeleteFolderId(null);
+    setShowFolderDeleteConfirm(false);
+  }
+  /* 自动持久化保存 */
+
+    useEffect(() => {
+      writeUserStorageArray(user, "folders", folders);}, [folders, user]);
+
+    useEffect(() => {
+      writeUserStorageArray(user, "deletedFolderIds", deletedFolderIds);
+    }, [deletedFolderIds, user]);
+
+    useEffect(() => {writeUserStorageArray(user, "ddls", ddls);}, [ddls, user]);
+
+    useEffect(() => {writeUserStorageArray(user, "deletedCourses", deletedCourses);}, [deletedCourses, user]);
+
+    useEffect(() => {localStorage.setItem( "darkMode", JSON.stringify(darkMode));}, [darkMode]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function checkBackend() {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/health`, {
+          cache: "no-store",
+        });
+
+        if (!alive) return;
+
+        if (response.ok) {
+          setApiStatus({
+            checking: false,
+            online: true,
+            message: "后端连接正常",
+          });
+        } else {
+          setApiStatus({
+            checking: false,
+            online: false,
+            message: "后端暂不可用，当前使用本地模式",
+          });
+        }
+      } catch {
+        if (!alive) return;
+
+        setApiStatus({
+          checking: false,
+          online: false,
+          message: "后端暂不可用，当前使用本地模式",
+        });
+      }
+    }
+
+    checkBackend();
 
     return () => {
       alive = false;
     };
-  }, [isBackendCourseRoute, isBackendNoteRoute, backendCourseId, backendNoteId]);
+  }, []);
 
   useEffect(() => {
-    if (!note) return;
+    let alive = true;
 
-    setTitle(note.title || "");
-    setContent(note.content || "");
-    setSavedTip(note.backendSynced ? "已连接数据库" : "已同步");
-  }, [note?.id]);
-
-  const colors = getColors(darkMode);
-  const headings = useMemo(() => extractHeadings(content), [content]);
-  const wordCount = plainText(content).length;
-
-  useEffect(() => {
-    if (!note || !course) return;
-
-    setSavedTip("正在自动保存…");
-
-    const timer = window.setTimeout(() => {
-      saveNote(true);
-    }, 800);
-
-    return () => window.clearTimeout(timer);
-  }, [title, content]);
-
-  async function saveNote(silent = false) {
-    if (!note || !title.trim()) return;
-
-    if (note.backendSynced && note.backendId) {
+    async function loadBackendFolders() {
       try {
-        const savedNote = await updateBackendNote(note.backendId, {
-          title: title.trim(),
-          content,
-        });
+        const data = await getBackendFolders();
+        if (!alive) return;
 
-        const mappedNote = mapBackendNoteForEditor(savedNote);
-
-        setBackendNotes((prevNotes) =>
-          prevNotes.map((item) =>
-            String(item.id) === String(noteId) ? mappedNote : item
-          )
+        const hiddenBackendFolderIds = new Set(
+          deletedFolderIds.map((id) => String(id))
         );
 
-        setSavedTip(silent ? "已自动保存到数据库" : "已保存到数据库");
-        window.setTimeout(() => setSavedTip("已连接数据库"), 1400);
-        return;
-      } catch {
-        setSavedTip("后端保存失败，等待重试");
-        return;
+        const nextFolders = Array.isArray(data)
+          ? data
+              .map(mapBackendFolder)
+              .filter(
+                (folder) =>
+                  !folder.backendId ||
+                  !hiddenBackendFolderIds.has(String(folder.backendId))
+              )
+          : [];
+
+        const backendCourseCount = nextFolders.reduce(
+          (sum, folder) => sum + (folder.courses || []).length,
+          0
+        );
+
+        setFolders(nextFolders);
+
+        if (nextFolders.length > 0) {
+          setBackendCourseMessage(
+            `已同步 ${nextFolders.length} 个文件夹，${backendCourseCount} 门课程`
+          );
+        } else {
+          setBackendCourseMessage("当前账号暂无文件夹，可新建文件夹同步到数据库");
+        }
+      } catch (error) {
+        if (!alive) return;
+
+        setBackendCourseMessage("后端文件夹暂不可用，继续使用本地课程");
       }
     }
 
-    const nextNotes = notes.map((item) =>
-      String(item.id) === String(noteId)
-        ? {
-            ...item,
-            title: title.trim(),
-            content,
-            updatedAt: Date.now(),
-          }
-        : item
+    loadBackendFolders();
+
+    return () => {
+      alive = false;
+    };
+  }, [deletedFolderIds]);
+
+
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendTrash() {
+      try {
+        const data = await getBackendDeletedCourses();
+        if (!alive) return;
+
+        const backendTrashCourses = Array.isArray(data)
+          ? data.map(mapBackendDeletedCourse)
+          : [];
+
+        setDeletedCourses((prevCourses) => {
+          const localTrashCourses = prevCourses.filter(
+            (course) => !course.backendDeleted
+          );
+
+          return [...localTrashCourses, ...backendTrashCourses];
+        });
+      } catch {
+        // 后端回收站不可用时继续使用本地回收站。
+      }
+    }
+
+    loadBackendTrash();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendDdls() {
+      try {
+        const data = await getDdls();
+        if (!alive) return;
+
+        const nextBackendDdls = Array.isArray(data) ? data.map(mapBackendDdl) : [];
+
+        setDdls(nextBackendDdls);
+
+        if (nextBackendDdls.length > 0) {
+          setBackendDdlMessage(`已同步 ${nextBackendDdls.length} 条 DDL`);
+        } else {
+          setBackendDdlMessage("当前账号暂无 DDL，可新建日程同步到数据库");
+        }
+      } catch (error) {
+        if (!alive) return;
+        setBackendDdlMessage("后端 DDL 暂不可用，继续使用本地 DDL");
+      }
+    }
+
+    loadBackendDdls();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+
+
+  const allCourses = folders.flatMap((folder) => folder.courses);
+
+  const searchedFolders = folders
+    .map((folder) => ({
+      ...folder,
+      courses: folder.courses.filter((course) =>
+        course.title.toLowerCase().includes(searchText.toLowerCase())
+      ),
+    }))
+    .filter((folder) => folder.courses.length > 0);
+
+  const searchedAllCourses = allCourses.filter((course) =>
+    course.title.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  const starredCourses = searchedAllCourses.filter((course) => course.starred);
+
+  const allNotesForSearch = readUserStorageArray(user, "notes", []);
+  const allResourcesForSearch = readUserStorageArray(user, "resources", []);
+  const noteCount = allNotesForSearch.length;
+  const resourceCount = allResourcesForSearch.length;
+
+  const globalSearchItems = buildGlobalSearchItems({
+    courses: allCourses,
+    notes: allNotesForSearch,
+    resources: allResourcesForSearch,
+    ddls,
+  });
+
+  const currentUser = user || {
+    name: "鲸记用户",
+    role: "学生",
+    account: "本地体验账号",
+    authMode: "local-demo",
+  };
+
+  let visibleFolders = searchText ? searchedFolders : folders;
+
+  function getCourseNoteCount(course) {
+    return allNotesForSearch.filter((note) => {
+      return (
+        String(note.courseId || "") === String(course.id) ||
+        String(note.courseId || "") === String(course.backendId || "") ||
+        String(note.backendCourseId || "") === String(course.backendId || "") ||
+        String(note.courseName || "") === String(course.title || "")
+      );
+    }).length;
+  }
+
+  function getCourseDdlCount(course) {
+    return ddls.filter((ddl) => {
+      if (ddl.completed) return false;
+
+      return (
+        String(ddl.courseId || "") === String(course.id) ||
+        String(ddl.courseId || "") === String(course.backendId || "") ||
+        String(ddl.backendCourseId || "") === String(course.backendId || "") ||
+        String(ddl.courseName || "") === String(course.title || "")
+      );
+    }).length;
+  }
+
+  if (selectedFolder === "全部课程") {
+    visibleFolders = [
+      {
+        id: "all",
+        title: "全部课程",
+        courses: searchedAllCourses,
+      },
+    ];
+  } else if (selectedFolder === "收藏夹") {
+    visibleFolders = [
+      {
+        id: "starred",
+        title: "收藏夹",
+        courses: starredCourses,
+      },
+    ];
+  } else if (selectedFolder === "回收站") {
+    visibleFolders = [
+      {
+        id: "trash",
+        title: "回收站",
+        courses: deletedCourses,
+      },
+    ];
+  } else if (selectedFolder === "最近使用") {
+    visibleFolders = [
+      {
+        id: "recent",
+        title: "最近使用",
+        courses: searchedAllCourses.slice(0, 3),
+      },
+    ];
+  } else if (selectedFolder !== "全部") {
+    const folderResult = folders.filter(
+      (folder) => folder.title === selectedFolder
     );
 
-    setNotes(nextNotes);
-    localStorage.setItem("notes", JSON.stringify(nextNotes));
-
-    setSavedTip(silent ? "已自动保存" : "已保存");
-    window.setTimeout(() => setSavedTip("已同步"), 1400);
+    visibleFolders = searchText
+      ? folderResult
+          .map((folder) => ({
+            ...folder,
+            courses: folder.courses.filter((course) =>
+              course.title.toLowerCase().includes(searchText.toLowerCase())
+            ),
+          }))
+          .filter((folder) => folder.courses.length > 0)
+      : folderResult;
   }
 
-  function insertText(text, selectOffset = 0) {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      setContent((value) => `${value}${text}`);
-      return;
-    }
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const next = `${content.slice(0, start)}${text}${content.slice(end)}`;
-
-    setContent(next);
-
-    window.setTimeout(() => {
-      textarea.focus();
-      const cursor = start + text.length + selectOffset;
-      textarea.selectionStart = cursor;
-      textarea.selectionEnd = cursor;
-    }, 0);
-  }
-
-  function wrapText(before, after = "", placeholder = "") {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      setContent((value) => `${value}${before}${placeholder}${after}`);
-      return;
-    }
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selected = content.slice(start, end) || placeholder;
-    const next = `${content.slice(0, start)}${before}${selected}${after}${content.slice(end)}`;
-
-    setContent(next);
-
-    window.setTimeout(() => {
-      textarea.focus();
-      textarea.selectionStart = start + before.length;
-      textarea.selectionEnd = start + before.length + selected.length;
-    }, 0);
-  }
-
-  function insertImage() {
-    const url = imageUrl.trim();
-    if (!url || url === "https://") return;
-
-    insertText(`\n![图片](${url})\n`);
-    setImageUrl("https://");
-    setImageModalOpen(false);
-  }
-
-  function goHeading(heading) {
-    setActiveHeading(heading.id);
-
-    if (editorMode === "preview") {
-      const target = previewRef.current?.querySelector(`[data-heading-id="${heading.id}"]`);
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-
-    const index = content.indexOf(heading.raw);
-    const textarea = textareaRef.current;
-
-    if (textarea && index >= 0) {
-      textarea.focus();
-      textarea.selectionStart = index;
-      textarea.selectionEnd = index + heading.raw.length;
-      textarea.scrollTop = Math.max(0, (index / Math.max(content.length, 1)) * textarea.scrollHeight - 120);
-    }
-  }
-
-  function exportMarkdown() {
-    downloadMarkdown(title, content);
-  }
-
-  function exportPdf() {
-    exportMarkdownAsPdf(title, content, course?.title || "课程");
-  }
-
-  if (!note || !course) {
-    return (
-      <div style={notFoundStyle(colors)}>
-        {backendLoading ? "正在同步后端笔记..." : "笔记不存在或已被删除"}
-      </div>
-    );
-  }
+  const visibleFoldersWithStats = visibleFolders.map((folder) => ({
+    ...folder,
+    courses: (folder.courses || []).map((course) => ({
+      ...course,
+      noteCount: getCourseNoteCount(course),
+      ddlCount: getCourseDdlCount(course),
+    })),
+  }));
 
   return (
-    <div style={{ height: "100vh", overflow: "hidden", background: colors.bg }}>
-      <main style={pageStyle}>
-        <section style={workspaceStyle(colors, darkMode)}>
-          <aside style={sidebarStyle(colors, darkMode)}>
-            <button
-              onClick={() => navigate(`/course/${courseId}`)}
-              style={backButtonStyle(colors, darkMode)}
-            >
-              ← 返回课程
-            </button>
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        overflow: "hidden",
+        background: darkMode ? "#0F172A" : "#F5F9FF",
+      }}
+    >
+      <Sidebar
+        folders={folders}
+        selectedFolder={selectedFolder}
+        setSelectedFolder={setSelectedFolder}
+        setShowFolderModal={setShowFolderModal}
+        setShowCourseModal={setShowCourseModal}
+        darkMode={darkMode}
+        onOpenSettings={() => setShowDataStatus(true)}
+      />
 
-            <div style={noteCardStyle(colors)}>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="请输入笔记标题"
-                style={sidebarTitleInputStyle(colors)}
-              />
-              <div style={sidebarMetaStyle(colors)}>
-                {course.title} · {note.sourceResourceName || note.source || "手动记录"}
-              </div>
-              <div style={sidebarDateStyle(colors)}>
-                {new Date(note.updatedAt || note.createdAt).toLocaleDateString()}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+        }}
+      >
+        <Header
+          searchText={searchText}
+          setSearchText={setSearchText}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          upcomingDdls={upcomingDdls}
+          user={currentUser}
+          onLogout={onLogout}
+          onOpenDataStatus={() => setShowDataStatus(true)}
+          searchItems={globalSearchItems}
+        />
+
+        <div
+          style={{
+            flex: 1,
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) 360px",
+            overflow: "hidden",
+          }}
+        >
+          <main
+            style={{
+              minWidth: 0,
+              padding: "36px",
+              overflowY: "auto",
+              background: darkMode
+                ? `
+                  radial-gradient(
+                    circle at top left,
+                    rgba(99,102,241,0.08),
+                    transparent 24%
+                  ),
+                  linear-gradient(
+                    180deg,
+                    #111827 0%,
+                    #1E293B 100%
+                  )
+                `
+                : "linear-gradient(180deg,#F5F9FF 0%,#EEF6FF 100%)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                marginBottom: "32px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "18px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "54px",
+                    height: "54px",
+                    borderRadius: "50%",
+                    background: darkMode
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(255,255,255,0.75)",
+                    border: darkMode
+                      ? "1px solid rgba(255,255,255,0.06)"
+                      : "1px solid rgba(226,232,240,0.9)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: darkMode
+                      ? "0 10px 24px rgba(0,0,0,0.18)"
+                      : "0 10px 24px rgba(15,42,74,0.05)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: darkMode ? "#A5B4FC" : "#3B82F6",
+                      fontSize: "20px",
+                    }}
+                  >
+                    ✦
+                  </span>
+                </div>
+
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      color: darkMode ? "#F3F4F6" : "#183B63",
+                      fontSize: "36px",
+                      fontWeight: 600,
+                      lineHeight: 1.2,
+                      letterSpacing: "-0.03em",
+                    }}
+                  >
+                    下午好，{currentUser.name || "鲸记用户"}
+                  </h1>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      color: darkMode ? "#94A3B8" : "#64748B",
+                      fontSize: "15px",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    沉淀课堂知识，让学习真正留下痕迹
+                  </p>
+
+                  <button
+                    onClick={() => setShowDataStatus(true)}
+                    style={{
+                      marginTop: "12px",
+                      border: darkMode
+                        ? "1px solid rgba(148,163,184,0.2)"
+                        : "1px solid #DDE8F6",
+                      background: apiStatus.online
+                        ? darkMode
+                          ? "rgba(16,185,129,0.12)"
+                          : "#ECFDF5"
+                        : darkMode
+                        ? "rgba(148,163,184,0.12)"
+                        : "#F8FAFC",
+                      color: apiStatus.online ? "#10B981" : darkMode ? "#CBD5E1" : "#64748B",
+                      borderRadius: "999px",
+                      padding: "7px 12px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {apiStatus.online ? "● 后端在线" : "○ 本地模式"}
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div style={sidebarTitleStyle(colors)}>目录</div>
-
-            {headings.length === 0 ? (
-              <div style={emptyTocStyle(colors)}>
-                暂无目录。使用 #、## 或 ### 创建章节标题。
+            {visibleFoldersWithStats.length === 0 ? (
+              <div
+                style={{
+                  height: "160px",
+                  border: darkMode
+                    ? "1.5px dashed rgba(148,163,184,0.24)"
+                    : "1.5px dashed #CBD5E1",
+                  borderRadius: "14px",
+                  color: darkMode ? "#94A3B8" : "#94A3B8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: darkMode
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(255,255,255,0.45)",
+                }}
+              >
+                没有找到相关课程
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 6 }}>
-                {headings.map((heading) => (
-                  <button
-                    key={heading.id}
-                    onClick={() => goHeading(heading)}
-                    style={tocItemStyle(colors, heading, activeHeading === heading.id)}
-                  >
-                    {heading.text}
-                  </button>
-                ))}
-              </div>
-            )}
-          </aside>
-
-          <section style={editorShellStyle(colors)}>
-            <header style={topbarStyle(colors)}>
-              <div style={toolbarLeftStyle}>
-                <SegmentButton
-                  active={editorMode === "document"}
-                  colors={colors}
-                  onClick={() => setEditorMode("document")}
-                >
-                  文档
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "markdown"}
-                  colors={colors}
-                  onClick={() => setEditorMode("markdown")}
-                >
-                  Markdown
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "split"}
-                  colors={colors}
-                  onClick={() => setEditorMode("split")}
-                >
-                  分屏
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "preview"}
-                  colors={colors}
-                  onClick={() => setEditorMode("preview")}
-                >
-                  预览
-                </SegmentButton>
-
-                <Divider colors={colors} />
-
-                <ToolButton colors={colors} onClick={() => wrapText("**", "**", "加粗文字")}>B</ToolButton>
-                <ToolButton colors={colors} onClick={() => wrapText("*", "*", "斜体文字")}>I</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n## 新章节\n")}>H2</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n- 列表项\n")}>列表</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n> 引用内容\n")}>引用</ToolButton>
-                <ToolButton colors={colors} onClick={() => wrapText("[", "](https://)", "链接文字")}>链接</ToolButton>
-                <ToolButton colors={colors} onClick={() => setImageModalOpen(true)}>图片</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText(" x² + y² = z² ")}>公式</ToolButton>
-
-                <div style={{ position: "relative" }}>
-                  <ToolButton colors={colors} onClick={() => setSymbolPanelOpen((value) => !value)}>符号</ToolButton>
-                  {symbolPanelOpen && (
-                    <SymbolPanel
-                      colors={colors}
-                      onInsert={(symbol) => {
-                        insertText(symbol);
-                        setSymbolPanelOpen(false);
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div style={toolbarRightStyle}>
-                <span style={saveTipStyle(colors)}>{savedTip}</span>
-                <button onClick={exportMarkdown} style={secondaryButton(colors)}>导出 MD</button>
-                <button onClick={exportPdf} style={secondaryButton(colors)}>导出 PDF</button>
-                <button onClick={() => saveNote(false)} style={primaryButton(colors)}>保存</button>
-              </div>
-            </header>
-
-            <div style={bodyStyle(colors)}>
-              {editorMode === "preview" ? (
-                <PreviewPanel colors={colors} content={content} previewRef={previewRef} />
-              ) : editorMode === "split" ? (
-                <div style={splitStyle}>
-                  <EditorTextarea
-                    textareaRef={textareaRef}
-                    value={content}
-                    onChange={setContent}
-                    darkMode={darkMode}
-                    colors={colors}
-                    mode="markdown"
-                  />
-                  <PreviewPanel colors={colors} content={content} previewRef={previewRef} compact />
-                </div>
-              ) : (
-                <EditorTextarea
-                  textareaRef={textareaRef}
-                  value={content}
-                  onChange={setContent}
+              visibleFoldersWithStats.map((folder) => (
+                <FolderSection
+                  key={folder.id}
+                  folderId={folder.id}
+                  title={folder.title}
+                  courses={folder.courses}
+                  ddls={ddls}
+                  onAddCourse={openCourseModal}
+                  onStarCourse={toggleStarCourse}
+                  onDeleteCourse={requestDeleteCourse}
+                  onRenameCourse={openRenameCourseModal}
+                  onRestoreCourse={restoreCourse}
+                  onPermanentDeleteCourse={permanentDeleteCourse}
+                  onDeleteFolder={requestDeleteFolder}
+                  onRenameFolder={openRenameFolderModal}
+                  canAddCourse={!searchText && (isRealFolder(folder) || String(folder.id) === "__unassigned")}
+                  canDeleteFolder={isRealFolder(folder)}
+                  canRenameFolder={isRealFolder(folder)}
+                  isTrash={selectedFolder === "回收站"}
                   darkMode={darkMode}
-                  colors={colors}
-                  mode={editorMode}
                 />
-              )}
-            </div>
+              ))
+            )}
+          </main>
 
-            <footer style={statusBarStyle(colors)}>
-              <span>{wordCount} 字</span>
-              <span>自动保存开启</span>
-              <span>文档 / Markdown / LaTeX / 特殊运算符</span>
-            </footer>
-          </section>
-        </section>
-      </main>
+          <aside
+            style={{
+              width: "360px",
+              padding: "24px",
+              borderLeft: darkMode
+                ? "1px solid rgba(148,163,184,0.12)"
+                : "1px solid #E5EAF3",
+              background: darkMode ? "#111827" : "#F9FBFF",
+              overflowY: "auto",
+              boxSizing: "border-box",
+            }}
+          >
+            <DDLPanel
+              ddls={activeDdls}
+              darkMode={darkMode}
+              onAddDDL={() => setShowDDLModal(true)}
+              onViewAllDDL={() =>navigate("/ddl")}
+            />
+          </aside>
+        </div>
 
-      {imageModalOpen && (
-        <InlineModal colors={colors} darkMode={darkMode} onClose={() => setImageModalOpen(false)}>
-          <h3 style={{ margin: "0 0 12px", color: colors.title }}>插入图片</h3>
-          <p style={{ margin: "0 0 16px", color: colors.text, fontSize: 13 }}>
-            输入图片地址，保存后会以 Markdown 图片语法插入笔记。
-          </p>
+        <Footer
+          darkMode={darkMode}
+          courseCount={allCourses.length}
+          ddlCount={ddls.length}
+        />
+      </div>
+
+      {showDataStatus && (
+        <DataStatusModal
+          darkMode={darkMode}
+          user={currentUser}
+          apiStatus={apiStatus}
+          backendCourseMessage={backendCourseMessage}
+          backendDdlMessage={backendDdlMessage}
+          courseCount={allCourses.length}
+          folderCount={folders.length}
+          ddlCount={ddls.length}
+          activeDdlCount={activeDdls.length}
+          noteCount={noteCount}
+          resourceCount={resourceCount}
+          onClose={() => setShowDataStatus(false)}
+        />
+      )}
+
+      {showFolderModal && (
+        <Modal title="新建文件夹" darkMode={darkMode}>
           <input
-            value={imageUrl}
-            onChange={(event) => setImageUrl(event.target.value)}
-            style={modalInputStyle(colors, darkMode)}
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="请输入文件夹名称"
+            style={inputStyle}
           />
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
-            <button onClick={() => setImageModalOpen(false)} style={secondaryButton(colors)}>取消</button>
-            <button onClick={insertImage} style={primaryButton(colors)}>插入</button>
+
+          <ModalActions
+            onCancel={() => setShowFolderModal(false)}
+            onConfirm={addFolder}
+            confirmText="创建"
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showCourseModal && (
+        <Modal title="新建课程" darkMode={darkMode}>
+          <input
+            value={newCourseName}
+            onChange={(e) => setNewCourseName(e.target.value)}
+            placeholder="请输入课程名称"
+            style={{ ...inputStyle, marginBottom: "14px" }}
+          />
+
+          <select
+            value={targetFolderId}
+            onChange={(e) => setTargetFolderId(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">请选择文件夹</option>
+            <option value="__unassigned">未归属课程</option>
+            {folders
+              .filter((folder) => folder.id !== "__unassigned")
+              .map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
+          </select>
+
+          <ModalActions
+            onCancel={() => setShowCourseModal(false)}
+            onConfirm={addCourse}
+            confirmText="创建"
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showDDLModal && (
+        <ScheduleModal
+          darkMode={darkMode}
+          courses={allCourses}
+          preview={newDDLPreview}
+          titleValue={newDDLTitle}
+          setTitleValue={setNewDDLTitle}
+          dateValue={newDDLDate}
+          setDateValue={setNewDDLDate}
+          platformValue={newDDLPlatform}
+          setPlatformValue={setNewDDLPlatform}
+          noteValue={newDDLNote}
+          setNoteValue={setNewDDLNote}
+          courseId={newDDLCourseId}
+          setCourseId={setNewDDLCourseId}
+          onUploadImage={uploadDDLImage}
+          onCancel={resetDDLModal}
+          onConfirm={addDDL}
+        />
+      )}
+
+      {showRenameModal && (
+        <Modal
+          title="编辑课程"
+          darkMode={darkMode}
+        >
+          <div
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+            }}
+          >
+            课程名称
           </div>
-        </InlineModal>
+
+          <input
+            value={renameCourseName}
+            onChange={(e) => setRenameCourseName(e.target.value)}
+            placeholder="请输入课程名称"
+            style={{ ...inputStyle, marginBottom: "14px" }}
+            autoFocus
+          />
+
+          <div
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+            }}
+          >
+            归属文件夹
+          </div>
+
+          <select
+            value={renameCourseFolderId}
+            onChange={(e) => setRenameCourseFolderId(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="__unassigned">不归属任何课程</option>
+            {folders
+              .filter((folder) => folder.id !== "__unassigned")
+              .map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
+          </select>
+
+          <ModalActions
+            onCancel={() => {
+              setShowRenameModal(false);
+              setRenamingCourse(null);
+              setRenameCourseName("");
+              setRenameCourseFolderId("");
+            }}
+            onConfirm={confirmRenameCourse}
+            confirmText="保存修改"
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showFolderRenameModal && (
+        <Modal title="重命名文件夹" darkMode={darkMode}>
+          <input
+            value={renameFolderName}
+            onChange={(e) => setRenameFolderName(e.target.value)}
+            placeholder="请输入新的文件夹名称"
+            style={inputStyle}
+            autoFocus
+          />
+
+          <ModalActions
+            onCancel={() => {
+              setShowFolderRenameModal(false);
+              setRenamingFolderId(null);
+              setRenameFolderName("");
+            }}
+            onConfirm={confirmRenameFolder}
+            confirmText="保存修改"
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showDeleteConfirm && (
+        <Modal title="移动到回收站？" darkMode={darkMode}>
+          <p
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              lineHeight: 1.8,
+            }}
+          >
+            本地课程会移动到回收站；后端同步课程会进入数据库回收站，可恢复或彻底删除。
+          </p>
+
+          <ModalActions
+            onCancel={() => {
+              setPendingDeleteCourseId(null);
+              setShowDeleteConfirm(false);
+            }}
+            onConfirm={confirmDeleteCourse}
+            confirmText="确认移动"
+            danger
+            darkMode={darkMode}
+          />
+        </Modal>
+      )}
+
+      {showFolderDeleteConfirm && (
+        <Modal title="删除文件夹？" darkMode={darkMode}>
+          <p
+            style={{
+              color: darkMode ? "#CBD5E1" : "#64748B",
+              lineHeight: 1.8,
+            }}
+          >
+            文件夹会删除；其中课程会进入回收站。后端同步课程也会进入数据库回收站。
+          </p>
+
+          <ModalActions
+            onCancel={() => {
+              setPendingDeleteFolderId(null);
+              setShowFolderDeleteConfirm(false);
+            }}
+            onConfirm={confirmDeleteFolder}
+            confirmText="确认删除"
+            danger
+            darkMode={darkMode}
+          />
+        </Modal>
       )}
     </div>
   );
 }
 
-function EditorTextarea({ textareaRef, value, onChange, darkMode, colors, mode }) {
-  const isMarkdown = mode === "markdown";
 
-  return (
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder="开始记录课堂重点、公式推导、复习计划……"
-      style={{
-        width: "100%",
-        height: "100%",
-        minHeight: 0,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 12,
-        background: darkMode ? "#0F172A" : "#FBFDFF",
-        color: colors.title,
-        padding: isMarkdown ? "22px 24px" : "30px 34px",
-        boxSizing: "border-box",
-        resize: "none",
-        outline: "none",
-        fontSize: isMarkdown ? 15 : 17,
-        lineHeight: isMarkdown ? 1.8 : 2.05,
-        fontFamily: isMarkdown ? "Consolas, Menlo, monospace" : "Georgia, 'Times New Roman', 'Microsoft YaHei', serif",
-        colorScheme: darkMode ? "dark" : "light",
-      }}
-    />
-  );
-}
 
-function PreviewPanel({ colors, content, previewRef, compact = false }) {
-  const blocks = renderPreviewBlocks(content, colors);
+function toDatetimeLocalValue(value) {
+  if (!value) return "";
 
-  return (
-    <article
-      ref={previewRef}
-      style={{
-        width: "100%",
-        height: "100%",
-        maxHeight: "100%",
-        minHeight: 0,
-        overflowY: "auto",
-        overflowX: "hidden",
-        overscrollBehavior: "contain",
-        WebkitOverflowScrolling: "touch",
-        border: `1px solid ${colors.border}`,
-        borderRadius: 12,
-        background: colors.paper,
-        color: colors.title,
-        padding: compact ? "22px 24px 84px" : "34px 40px 120px",
-        boxSizing: "border-box",
-        lineHeight: 1.9,
-        fontSize: 16,
-        scrollBehavior: "smooth",
-      }}
-    >
-      {blocks.length ? blocks : <p style={{ color: colors.muted }}>暂无正文</p>}
-    </article>
-  );
-}
+  const text = String(value).trim();
 
-function renderPreviewBlocks(content = "", colors) {
-  const lines = content.split("\n");
-  const blocks = [];
-  let listItems = [];
-
-  function flushList() {
-    if (!listItems.length) return;
-    blocks.push(
-      <ul key={`ul-${blocks.length}`} style={{ margin: "10px 0 18px", paddingLeft: 24 }}>
-        {listItems.map((item, index) => (
-          <li key={index} style={{ margin: "6px 0" }}>{convertLatexText(item)}</li>
-        ))}
-      </ul>
-    );
-    listItems = [];
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16);
   }
 
-  lines.forEach((line, index) => {
-    const text = line.trim();
+  const normalized = text
+    .replace(/\//g, "-")
+    .replace(" ", "T")
+    .replace("：", ":");
 
-    if (!text) {
-      flushList();
-      blocks.push(<div key={`space-${index}`} style={{ height: 10 }} />);
-      return;
-    }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(0, 16);
+  }
 
-    if (text === "$$") {
-      return;
-    }
-
-    const heading = text.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushList();
-      const level = heading[1].length;
-      const id = heading[2].trim().replace(/\s+/g, "-");
-      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : "h3";
-      blocks.push(
-        <Tag
-          key={`h-${index}`}
-          data-heading-id={id}
-          style={{
-            color: colors.title,
-            margin: level === 1 ? "26px 0 14px" : "22px 0 12px",
-            fontSize: level === 1 ? 30 : level === 2 ? 24 : 19,
-            fontWeight: 800,
-          }}
-        >
-          {convertLatexText(heading[2])}
-        </Tag>
-      );
-      return;
-    }
-
-    const list = text.match(/^[-*]\s+(.+)$/);
-    if (list) {
-      listItems.push(list[1]);
-      return;
-    }
-
-    const quote = text.match(/^>\s+(.+)$/);
-    if (quote) {
-      flushList();
-      blocks.push(
-        <blockquote
-          key={`q-${index}`}
-          style={{
-            margin: "14px 0",
-            padding: "12px 16px",
-            borderLeft: `4px solid ${colors.active}`,
-            background: colors.soft,
-            color: colors.text,
-            borderRadius: 10,
-          }}
-        >
-          {convertLatexText(quote[1])}
-        </blockquote>
-      );
-      return;
-    }
-
-    flushList();
-    blocks.push(
-      <p key={`p-${index}`} style={{ margin: "10px 0", color: colors.title }}>
-        {convertLatexText(text)}
-      </p>
-    );
-  });
-
-  flushList();
-  return blocks;
+  return "";
 }
 
-function SymbolPanel({ colors, onInsert }) {
-  const groups = [
-    ["≤", "≥", "≠", "≈", "≡", "±", "×", "÷"],
-    ["∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "∞"],
-    ["∀", "∃", "∴", "∵", "→", "⇒", "⇔", "↔"],
-    ["∑", "∫", "√", "∂", "∇", "π", "α", "β"],
+function isRealFolder(folder) {
+  return !["all", "starred", "trash", "recent", "__unassigned"].includes(
+    String(folder.id)
+  );
+}
+
+function addCourseToUnassignedFolder(folders = [], course) {
+  const hasUnassigned = folders.some(
+    (folder) => String(folder.id) === "__unassigned"
+  );
+
+  if (hasUnassigned) {
+    return folders.map((folder) =>
+      String(folder.id) === "__unassigned"
+        ? {
+            ...folder,
+            courses: [...(folder.courses || []), course],
+          }
+        : folder
+    );
+  }
+
+  return [
+    ...folders,
+    {
+      id: "__unassigned",
+      backendId: null,
+      title: "未归属课程",
+      createdAt: Date.now(),
+      backendSynced: true,
+      courses: [course],
+    },
   ];
+}
+
+function mapBackendFolder(folder) {
+  if (folder.id === null || folder.id === undefined) {
+    return {
+      id: "__unassigned",
+      backendId: null,
+      title: folder.title || "未归属课程",
+      createdAt: folder.createdAt || Date.now(),
+      backendSynced: true,
+      courses: (folder.courses || []).map(mapBackendCourse),
+    };
+  }
+
+  return {
+    id: `api-folder-${folder.id}`,
+    backendId: folder.id,
+    title: folder.title,
+    createdAt: folder.createdAt || Date.now(),
+    backendSynced: true,
+    courses: (folder.courses || []).map(mapBackendCourse),
+  };
+}
+
+function mapBackendCourse(course) {
+  return {
+    id: `api-${course.id}`,
+    backendId: course.id,
+    title: course.title,
+    starred: Boolean(course.starred),
+    noteCount: 0,
+    ddlCount: 0,
+    folderId: course.folderId ? `api-folder-${course.folderId}` : null,
+    backendFolderId: course.folderId || null,
+    folderName: course.folderName || "",
+    backendSynced: true,
+  };
+}
+
+
+
+function mapBackendDeletedCourse(course) {
+  return {
+    id: `api-${course.id}`,
+    backendId: course.id,
+    title: course.title,
+    starred: Boolean(course.starred),
+    noteCount: 0,
+    ddlCount: 0,
+    folderId: course.deletedFolderId
+      ? `api-folder-${course.deletedFolderId}`
+      : course.folderId
+      ? `api-folder-${course.folderId}`
+      : null,
+    folderTitle: course.deletedFolderTitle || course.folderName || "恢复的课程",
+    backendFolderId: course.deletedFolderId || course.folderId || null,
+    folderName: course.deletedFolderTitle || course.folderName || "",
+    backendSynced: true,
+    backendDeleted: true,
+    deletedAt: course.deletedAt || Date.now(),
+  };
+}
+
+function placeRestoredBackendCourse(folders = [], course, fallbackFolderTitle = "恢复的课程") {
+  if (!course.backendFolderId) {
+    return addCourseToUnassignedFolder(folders, course);
+  }
+
+  const targetFolderId = `api-folder-${course.backendFolderId}`;
+  let placed = false;
+
+  const nextFolders = folders.map((folder) => {
+    const sameFolder =
+      String(folder.id) === String(targetFolderId) ||
+      String(folder.backendId || "") === String(course.backendFolderId);
+
+    if (!sameFolder) return folder;
+
+    placed = true;
+
+    return {
+      ...folder,
+      id: targetFolderId,
+      backendId: course.backendFolderId,
+      backendSynced: true,
+      title: course.folderName || folder.title || fallbackFolderTitle,
+      courses: [
+        ...(folder.courses || []).filter(
+          (item) => String(item.id) !== String(course.id)
+        ),
+        course,
+      ],
+    };
+  });
+
+  if (!placed) {
+    nextFolders.push({
+      id: targetFolderId,
+      backendId: course.backendFolderId,
+      title: course.folderName || fallbackFolderTitle,
+      createdAt: Date.now(),
+      backendSynced: true,
+      courses: [course],
+    });
+  }
+
+  return nextFolders;
+}
+
+function mapBackendDdl(ddl) {
+  return {
+    ...ddl,
+    id: `api-ddl-${ddl.id}`,
+    backendId: ddl.id,
+    courseId: ddl.courseId ? `api-${ddl.courseId}` : null,
+    backendCourseId: ddl.courseId || null,
+    courseName: ddl.courseName || "未归属课程",
+    platform: ddl.platform || "",
+    note: ddl.note || "",
+    completed: Boolean(ddl.completed),
+    source: ddl.source || "后端同步",
+    backendSynced: true,
+  };
+}
+
+
+function DataStatusModal({
+  darkMode,
+  user,
+  apiStatus,
+  backendCourseMessage,
+  backendDdlMessage,
+  courseCount,
+  folderCount,
+  ddlCount,
+  activeDdlCount,
+  noteCount,
+  resourceCount,
+  onClose,
+}) {
+  const colors = {
+    panel: darkMode ? "#111827" : "#FFFFFF",
+    card: darkMode ? "rgba(30,41,59,0.72)" : "#F8FBFF",
+    cardStrong: darkMode ? "rgba(30,41,59,0.92)" : "#FFFFFF",
+    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2EAF5",
+    title: darkMode ? "#F8FAFC" : "#173B63",
+    text: darkMode ? "#CBD5E1" : "#64748B",
+    muted: darkMode ? "#94A3B8" : "#94A3B8",
+    active: darkMode ? "#93C5FD" : "#2563EB",
+    success: "#10B981",
+    warning: "#F59E0B",
+    danger: "#EF4444",
+  };
+
+  const isOnline = Boolean(apiStatus.online);
+  const displayName = user?.name || "鲸记用户";
+  const accountText = user?.account || user?.email || "本地体验账号";
+  const roleText = user?.role || "学生";
+  const storageMode = isOnline ? "云端数据库同步" : "本地浏览器缓存";
+  const syncText = isOnline
+    ? "Vercel 前端、Render 后端与 Supabase 数据库已连通。"
+    : "后端暂不可用，当前仅保留本地演示数据。";
 
   return (
-    <div style={symbolPanelStyle(colors)}>
-      {groups.flat().map((symbol) => (
-        <button key={symbol} onClick={() => onInsert(symbol)} style={symbolButtonStyle(colors)}>
-          {symbol}
-        </button>
-      ))}
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: darkMode ? "rgba(2,6,23,0.62)" : "rgba(15,42,74,0.20)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+        padding: "28px",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: "min(880px, 100%)",
+          maxHeight: "calc(100vh - 56px)",
+          overflowY: "auto",
+          background: colors.panel,
+          border: `1px solid ${colors.border}`,
+          borderRadius: "24px",
+          padding: "26px",
+          boxSizing: "border-box",
+          boxShadow: darkMode
+            ? "0 28px 80px rgba(0,0,0,0.45)"
+            : "0 28px 80px rgba(15,42,74,0.16)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "18px",
+            alignItems: "flex-start",
+            marginBottom: "22px",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: colors.active,
+                fontSize: "12px",
+                fontWeight: 900,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Account & Sync
+            </div>
+
+            <h2
+              style={{
+                margin: 0,
+                color: colors.title,
+                fontSize: "28px",
+                fontWeight: 850,
+                letterSpacing: "-0.05em",
+                lineHeight: 1.15,
+              }}
+            >
+              账号与同步状态
+            </h2>
+
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: colors.text,
+                fontSize: "14px",
+                lineHeight: 1.7,
+              }}
+            >
+              查看当前账号、云端连接与数据统计。该页面仅用于状态确认，不作为主要功能入口。
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: colors.card,
+              color: colors.text,
+              width: "42px",
+              height: "42px",
+              borderRadius: "14px",
+              cursor: "pointer",
+              fontSize: "24px",
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
+            gap: "16px",
+            marginBottom: "16px",
+          }}
+        >
+          <div
+            style={{
+              background: colors.cardStrong,
+              border: `1px solid ${colors.border}`,
+              borderRadius: "18px",
+              padding: "18px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "16px",
+                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
+                  color: isOnline ? colors.success : colors.warning,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "20px",
+                  fontWeight: 900,
+                  flexShrink: 0,
+                }}
+              >
+                {displayName.slice(0, 1)}
+              </div>
+
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    color: colors.title,
+                    fontSize: "17px",
+                    fontWeight: 850,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {displayName}
+                </div>
+                <div
+                  style={{
+                    color: colors.text,
+                    fontSize: "13px",
+                    marginTop: "5px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {roleText} · {accountText}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
+              <InfoLine colors={colors} label="账号状态" value="已登录" tone={colors.success} />
+              <InfoLine colors={colors} label="数据隔离" value="按账号独立保存" />
+              <InfoLine colors={colors} label="登录模式" value={isOnline ? "线上 API" : "本地模式"} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: colors.cardStrong,
+              border: `1px solid ${colors.border}`,
+              borderRadius: "18px",
+              padding: "18px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "14px" }}>
+              <h3 style={{ margin: 0, color: colors.title, fontSize: "17px", fontWeight: 850 }}>
+                云端同步
+              </h3>
+
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
+                  color: isOnline ? colors.success : colors.warning,
+                  fontSize: "12px",
+                  fontWeight: 850,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    background: isOnline ? colors.success : colors.warning,
+                  }}
+                />
+                {isOnline ? "Online" : "Local"}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: "10px" }}>
+              <InfoLine colors={colors} label="后端 API" value={isOnline ? "已连接" : "未连接"} tone={isOnline ? colors.success : colors.warning} />
+              <InfoLine colors={colors} label="存储方式" value={storageMode} />
+              <InfoLine colors={colors} label="课程数据" value={backendCourseMessage || "等待课程同步"} />
+              <InfoLine colors={colors} label="DDL 数据" value={backendDdlMessage || "等待 DDL 同步"} />
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+            gap: "10px",
+            marginBottom: "16px",
+          }}
+        >
+          <StatBlock colors={colors} label="文件夹" value={folderCount} />
+          <StatBlock colors={colors} label="课程" value={courseCount} />
+          <StatBlock colors={colors} label="资料" value={resourceCount} />
+          <StatBlock colors={colors} label="笔记" value={noteCount} />
+          <StatBlock colors={colors} label="DDL" value={ddlCount} />
+          <StatBlock colors={colors} label="待办" value={activeDdlCount} />
+        </div>
+
+        <div
+          style={{
+            background: isOnline ? "rgba(16,185,129,0.08)" : colors.card,
+            border: `1px solid ${isOnline ? "rgba(16,185,129,0.22)" : colors.border}`,
+            borderRadius: "18px",
+            padding: "16px 18px",
+            color: colors.text,
+            fontSize: "14px",
+            lineHeight: 1.8,
+          }}
+        >
+          <strong style={{ color: colors.title }}>当前状态：</strong>
+          {syncText}
+          {isOnline
+            ? " 课程、DDL、笔记等核心数据会优先写入云端，并保留少量本地缓存用于页面体验。"
+            : " 请启动后端或检查线上 API 地址后再进行多设备同步测试。"}
+        </div>
+      </div>
     </div>
   );
 }
 
-function InlineModal({ colors, darkMode, children, onClose }) {
+function StatusPanel({ colors, title, children }) {
   return (
-    <div style={modalBackdropStyle(darkMode)} onClick={onClose}>
-      <div style={inlineModalStyle(colors, darkMode)} onClick={(event) => event.stopPropagation()}>
+    <div
+      style={{
+        background: colors.cardStrong || colors.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: "18px",
+        padding: "18px",
+        minWidth: 0,
+      }}
+    >
+      <h3
+        style={{
+          margin: "0 0 12px",
+          color: colors.title,
+          fontSize: "17px",
+          fontWeight: 850,
+        }}
+      >
+        {title}
+      </h3>
+      <div style={{ display: "grid", gap: "10px" }}>{children}</div>
+    </div>
+  );
+}
+
+function InfoLine({ colors, label, value, tone }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "86px minmax(0, 1fr)",
+        gap: "12px",
+        alignItems: "center",
+        color: colors.text,
+        fontSize: "13px",
+        minWidth: 0,
+      }}
+    >
+      <span style={{ color: colors.muted, whiteSpace: "nowrap" }}>{label}</span>
+      <strong
+        title={String(value || "")}
+        style={{
+          color: tone || colors.title,
+          textAlign: "right",
+          fontWeight: 800,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          minWidth: 0,
+        }}
+      >
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+function StatBlock({ colors, label, value }) {
+  return (
+    <div
+      style={{
+        background: colors.cardStrong || colors.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: "16px",
+        padding: "13px 10px",
+        textAlign: "center",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          color: colors.title,
+          fontSize: "24px",
+          fontWeight: 900,
+          letterSpacing: "-0.04em",
+          lineHeight: 1,
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ color: colors.muted, fontSize: "12px", marginTop: "8px" }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function buildGlobalSearchItems({ courses = [], notes = [], resources = [], ddls = [] }) {
+  const courseTitleById = new Map(courses.map((course) => [String(course.id), course.title]));
+  const courseIdByTitle = new Map(courses.map((course) => [course.title, course.id]));
+
+  const courseItems = courses.map((course) => ({
+    key: `course-${course.id}`,
+    type: "course",
+    typeLabel: "课程",
+    title: course.title,
+    subtitle: "课程空间 · 资料 / 笔记 / DDL",
+    content: course.title,
+    path: `/course/${course.id}`,
+  }));
+
+  const noteItems = notes.map((note) => {
+    const courseId = note.courseId || courseIdByTitle.get(note.courseName);
+    const courseTitle = note.courseName || courseTitleById.get(String(courseId)) || "未归属课程";
+
+    return {
+      key: `note-${note.id}`,
+      type: "note",
+      typeLabel: "笔记",
+      title: note.title || "未命名笔记",
+      subtitle: `${courseTitle} · ${createSnippet(note.content) || "笔记正文"}`,
+      content: `${note.title || ""} ${courseTitle} ${note.content || ""}`,
+      path: courseId ? `/course/${courseId}/note/${note.id}` : "/",
+    };
+  });
+
+  const resourceItems = resources.map((resource) => {
+    const courseId = resource.courseId || courseIdByTitle.get(resource.courseName);
+    const courseTitle = resource.courseName || courseTitleById.get(String(courseId)) || "未归属课程";
+
+    return {
+      key: `resource-${resource.id}`,
+      type: "resource",
+      typeLabel: "文件",
+      title: resource.name || "未命名资料",
+      subtitle: `${courseTitle} · ${resource.type || "资料"}`,
+      content: `${resource.name || ""} ${courseTitle} ${resource.type || ""}`,
+      path: courseId ? `/course/${courseId}` : "/",
+    };
+  });
+
+  const ddlItems = ddls.map((ddl) => {
+    const courseTitle = ddl.courseName || "未归属课程";
+
+    return {
+      key: `ddl-${ddl.id}`,
+      type: "ddl",
+      typeLabel: "DDL",
+      title: ddl.title || "未命名 DDL",
+      subtitle: `${courseTitle} · ${ddl.date || "未设置时间"}`,
+      content: `${ddl.title || ""} ${courseTitle} ${ddl.date || ""} ${ddl.platform || ""} ${ddl.note || ""}`,
+      path: "/ddl",
+    };
+  });
+
+  return [...courseItems, ...noteItems, ...resourceItems, ...ddlItems];
+}
+
+function createSnippet(text = "") {
+  return String(text)
+    .replace(/[#>*_`$\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 52);
+}
+
+function readStorageArray(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+const inputStyle = {
+  width: "100%",
+  height: "46px",
+  borderRadius: "12px",
+  border: "1px solid #D6E0EF",
+  padding: "0 14px",
+  boxSizing: "border-box",
+  fontSize: "15px",
+};
+
+function Modal({ title, children, darkMode }) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: darkMode ? "rgba(0,0,0,0.48)" : "rgba(0,0,0,0.24)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 999,
+      }}
+    >
+      <div
+        style={{
+          width: "380px",
+          background: darkMode ? "#1E293B" : "white",
+          border: darkMode
+            ? "1px solid rgba(148,163,184,0.18)"
+            : "1px solid transparent",
+          borderRadius: "18px",
+          padding: "28px",
+          boxShadow: darkMode
+            ? "0 24px 48px rgba(0,0,0,0.38)"
+            : "0 20px 40px rgba(15,42,74,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, color: darkMode ? "#F3F4F6" : "#0F2A4A" }}>
+          {title}
+        </h2>
+
         {children}
       </div>
     </div>
   );
 }
 
-function SegmentButton({ active, colors, children, onClick }) {
+function ModalActions({
+  onCancel,
+  onConfirm,
+  confirmText,
+  danger = false,
+  darkMode = false,
+}) {
   return (
-    <button onClick={onClick} style={segmentButtonStyle(colors, active)}>
-      {children}
-    </button>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "flex-end",
+        gap: "12px",
+        marginTop: "20px",
+      }}
+    >
+      <button
+        onClick={onCancel}
+        style={{
+          border: darkMode
+            ? "1px solid rgba(148,163,184,0.24)"
+            : "1px solid #CBD5E1",
+          background: darkMode ? "#0F172A" : "white",
+          color: darkMode ? "#CBD5E1" : "#334155",
+          borderRadius: "10px",
+          padding: "10px 18px",
+          cursor: "pointer",
+        }}
+      >
+        取消
+      </button>
+
+      <button
+        onClick={onConfirm}
+        style={{
+          border: "none",
+          background: danger
+            ? "#DC2626"
+            : darkMode
+            ? "linear-gradient(135deg,#6366F1,#4F46E5)"
+            : "linear-gradient(135deg,#4C8DFF,#2563EB)",
+          color: "white",
+          borderRadius: "10px",
+          padding: "10px 18px",
+          cursor: "pointer",
+        }}
+      >
+        {confirmText}
+      </button>
+    </div>
   );
 }
 
-function ToolButton({ colors, children, onClick }) {
-  return (
-    <button onClick={onClick} style={toolButtonStyle(colors)}>
-      {children}
-    </button>
-  );
-}
 
-function Divider({ colors }) {
-  return <div style={{ width: 1, height: 28, background: colors.border, margin: "0 4px" }} />;
-}
-
-function extractHeadings(markdown = "") {
-  return markdown
-    .split("\n")
-    .map((line, index) => {
-      const match = line.match(/^(#{1,3})\s+(.+)$/);
-      if (!match) return null;
-
-      return {
-        id: match[2].trim().replace(/\s+/g, "-"),
-        raw: line,
-        level: match[1].length,
-        text: match[2].trim(),
-        index,
-      };
-    })
-    .filter(Boolean);
-}
-
-function convertLatexText(text = "") {
-  return text
-    .replace(/\\rightarrow/g, "→")
-    .replace(/\\Rightarrow/g, "⇒")
-    .replace(/\\leftrightarrow/g, "↔")
-    .replace(/\\Leftrightarrow/g, "⇔")
-    .replace(/\\leq/g, "≤")
-    .replace(/\\geq/g, "≥")
-    .replace(/\\neq/g, "≠")
-    .replace(/\\infty/g, "∞")
-    .replace(/\\sum/g, "∑")
-    .replace(/\\int/g, "∫")
-    .replace(/\\sqrt/g, "√")
-    .replace(/\\alpha/g, "α")
-    .replace(/\\beta/g, "β")
-    .replace(/\\pi/g, "π")
-    .replace(/\\text\{([^}]+)\}/g, "$1")
-    .replace(/\$\$/g, "")
-    .replace(/\$/g, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1");
-}
-
-function plainText(markdown = "") {
-  return markdown.replace(/[#>*_`$-]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function downloadMarkdown(title, content) {
-  const safeTitle = (title || "NoteWhale笔记").replace(/[\\/:*?"<>|]/g, "_");
-  const blob = new Blob([content || ""], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${safeTitle}.md`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-
-
-function escapeHtml(value = "") {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function inlineMarkdownToHtml(value = "") {
-  return escapeHtml(value)
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-}
-
-function markdownToPrintableHtml(markdown = "") {
-  const lines = String(markdown || "").split("\n");
-  const html = [];
-  let listOpen = false;
-  let tableRows = [];
-
-  function closeList() {
-    if (listOpen) {
-      html.push("</ul>");
-      listOpen = false;
-    }
-  }
-
-  function flushTable() {
-    if (!tableRows.length) return;
-
-    const rows = tableRows.filter((row) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(row));
-    if (rows.length) {
-      html.push("<table>");
-      rows.forEach((row, index) => {
-        const cells = row
-          .trim()
-          .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((cell) => inlineMarkdownToHtml(cell.trim()));
-        const tag = index === 0 ? "th" : "td";
-        html.push(`<tr>${cells.map((cell) => `<${tag}>${cell}</${tag}>`).join("")}</tr>`);
-      });
-      html.push("</table>");
-    }
-
-    tableRows = [];
-  }
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trim();
-
-    if (!line) {
-      closeList();
-      flushTable();
-      html.push('<div class="space"></div>');
-      return;
-    }
-
-    if (line.includes("|") && line.startsWith("|")) {
-      closeList();
-      tableRows.push(line);
-      return;
-    }
-
-    flushTable();
-
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      closeList();
-      const level = Math.min(heading[1].length, 4);
-      html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
-      return;
-    }
-
-    const list = line.match(/^[-*]\s+(.+)$/);
-    if (list) {
-      if (!listOpen) {
-        html.push("<ul>");
-        listOpen = true;
-      }
-      html.push(`<li>${inlineMarkdownToHtml(list[1])}</li>`);
-      return;
-    }
-
-    const quote = line.match(/^>\s+(.+)$/);
-    if (quote) {
-      closeList();
-      html.push(`<blockquote>${inlineMarkdownToHtml(quote[1])}</blockquote>`);
-      return;
-    }
-
-    closeList();
-    html.push(`<p>${inlineMarkdownToHtml(line)}</p>`);
-  });
-
-  closeList();
-  flushTable();
-  return html.join("\n");
-}
-
-function exportMarkdownAsPdf(title, content, courseTitle = "课程") {
-  const safeTitle = escapeHtml(title || "NoteWhale笔记");
-  const safeCourseTitle = escapeHtml(courseTitle || "课程");
-  const bodyHtml = markdownToPrintableHtml(content || "");
-  const printWindow = window.open("", "_blank");
-
-  if (!printWindow) {
-    alert("浏览器阻止了导出窗口，请允许弹窗后重试。");
-    return;
-  }
-
-  printWindow.document.write(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${safeTitle}</title>
-  <style>
-    @page { size: A4; margin: 18mm 16mm; }
-    body {
-      margin: 0;
-      color: #183B63;
-      font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-      line-height: 1.75;
-      background: #fff;
-    }
-    .cover { border-bottom: 2px solid #DDE8F6; padding-bottom: 14px; margin-bottom: 22px; }
-    .brand { color: #2563EB; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-    h1 { font-size: 30px; margin: 8px 0 8px; line-height: 1.25; }
-    .meta { color: #64748B; font-size: 13px; }
-    h2 { font-size: 22px; margin: 24px 0 10px; border-left: 4px solid #2563EB; padding-left: 10px; }
-    h3 { font-size: 18px; margin: 18px 0 8px; }
-    h4 { font-size: 16px; margin: 14px 0 6px; }
-    p { margin: 8px 0; }
-    ul { margin: 8px 0 14px; padding-left: 22px; }
-    li { margin: 5px 0; }
-    blockquote { margin: 12px 0; padding: 10px 14px; border-left: 4px solid #93C5FD; background: #F8FAFC; color: #334155; border-radius: 8px; }
-    code { background: #F1F5F9; padding: 2px 5px; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 13px; }
-    th, td { border: 1px solid #DDE8F6; padding: 8px 10px; vertical-align: top; }
-    th { background: #F1F6FF; color: #183B63; }
-    a { color: #2563EB; text-decoration: none; }
-    .space { height: 8px; }
-    .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #E2E8F0; color: #94A3B8; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <section class="cover">
-    <div class="brand">NoteWhale AI Powered Notes</div>
-    <h1>${safeTitle}</h1>
-    <div class="meta">课程：${safeCourseTitle} · 导出时间：${new Date().toLocaleString()}</div>
-  </section>
-  ${bodyHtml || '<p>暂无正文</p>'}
-  <div class="footer">由 NoteWhale 生成，可在编辑器中继续修改 Markdown 源文档。</div>
-  <script>
-    window.onload = function () {
-      window.focus();
-      window.print();
-    };
-  </script>
-</body>
-</html>`);
-  printWindow.document.close();
-}
-
-function mapBackendNoteForEditor(note) {
-  return {
-    id: `api-note-${note.id}`,
-    backendId: note.id,
-    title: note.title,
-    content: note.content || "",
-    courseId: note.courseId ? `api-${note.courseId}` : null,
-    backendCourseId: note.courseId,
-    courseName: note.courseName || "",
-    source: note.source || "手动记录",
-    sourceResourceName: note.source || "手动记录",
-    sourceResourceType: note.aiGenerated ? "AI笔记" : "笔记",
-    aiGenerated: Boolean(note.aiGenerated),
-    createdAt: note.createdAt || Date.now(),
-    updatedAt: note.updatedAt || note.createdAt || Date.now(),
-    backendSynced: true,
-  };
-}
-
-function getColors(darkMode) {
-  return {
-    bg: darkMode ? "#0F172A" : "linear-gradient(180deg,#F5F9FF 0%,#EEF6FF 100%)",
-    shell: darkMode ? "#172235" : "rgba(255,255,255,0.96)",
-    card: darkMode ? "#111827" : "#FFFFFF",
-    paper: darkMode ? "#0F172A" : "#FBFDFF",
-    soft: darkMode ? "rgba(148,163,184,0.12)" : "#F8FAFC",
-    softer: darkMode ? "rgba(129,140,248,0.14)" : "#F1F6FF",
-    border: darkMode ? "rgba(148,163,184,0.22)" : "#DCE6F3",
+function ScheduleModal({
+  darkMode,
+  courses,
+  preview,
+  titleValue,
+  setTitleValue,
+  dateValue,
+  setDateValue,
+  platformValue,
+  setPlatformValue,
+  noteValue,
+  setNoteValue,
+  courseId,
+  setCourseId,
+  onUploadImage,
+  onCancel,
+  onConfirm,
+}) {
+  const colors = {
+    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2E8F0",
     title: darkMode ? "#F8FAFC" : "#183B63",
     text: darkMode ? "#CBD5E1" : "#64748B",
     muted: darkMode ? "#94A3B8" : "#94A3B8",
-    active: darkMode ? "#818CF8" : "#1D4ED8",
+    active: darkMode ? "#818CF8" : "#2563EB",
+    soft: darkMode ? "rgba(148,163,184,0.12)" : "#F8FAFC",
   };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: darkMode ? "rgba(0,0,0,0.52)" : "rgba(15,42,74,0.18)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 999,
+      }}
+    >
+      <div
+        style={{
+          width: "900px",
+          maxWidth: "calc(100vw - 40px)",
+          background: darkMode ? "#1E293B" : "#FFFFFF",
+          border: `1px solid ${colors.border}`,
+          borderRadius: "22px",
+          padding: "32px 36px",
+          boxShadow: darkMode
+            ? "0 28px 60px rgba(0,0,0,0.45)"
+            : "0 24px 48px rgba(15,42,74,0.16)",
+        }}
+      >
+        <h2
+          style={{
+            margin: "0 0 26px",
+            color: colors.title,
+            fontSize: "28px",
+            fontWeight: 800,
+          }}
+        >
+          新建日程
+        </h2>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "300px 1fr",
+            gap: "28px",
+          }}
+        >
+          <div
+            style={{
+              background: colors.soft,
+              border: `1px dashed ${colors.border}`,
+              borderRadius: "18px",
+              minHeight: "360px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "18px",
+              boxSizing: "border-box",
+            }}
+          >
+            {preview ? (
+              <img
+                src={preview}
+                alt="DDL截图预览"
+                style={{
+                  width: "100%",
+                  maxHeight: "220px",
+                  objectFit: "cover",
+                  borderRadius: "14px",
+                  marginBottom: "18px",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "180px",
+                  height: "160px",
+                  borderRadius: "16px",
+                  background: darkMode ? "#0F172A" : "#E5EAF4",
+                  marginBottom: "20px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: colors.muted,
+                  fontSize: "13px",
+                }}
+              >
+                可选图片
+              </div>
+            )}
+
+            <label
+              style={{
+                border: `1px solid ${colors.active}`,
+                color: colors.active,
+                background: darkMode ? "rgba(129,140,248,0.08)" : "#FFFFFF",
+                padding: "10px 24px",
+                borderRadius: "12px",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              上传图片识别（可选）
+              <input
+                type="file"
+                accept="image/*"
+                onChange={onUploadImage}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            <p
+              style={{
+                color: colors.muted,
+                fontSize: "13px",
+                marginTop: "14px",
+                textAlign: "center",
+                lineHeight: 1.6,
+              }}
+            >
+              支持截图、照片等格式；
+              <br />
+              不上传也可以手动填写
+            </p>
+          </div>
+
+          <div>
+            <ScheduleLabel colors={colors}>标题</ScheduleLabel>
+            <input
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              placeholder="请输入日程标题"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>截止时间</ScheduleLabel>
+            <input
+              type="datetime-local"
+              value={dateValue}
+              onChange={(e) => setDateValue(e.target.value)}
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>平台 / 地点</ScheduleLabel>
+            <input
+              value={platformValue}
+              onChange={(e) => setPlatformValue(e.target.value)}
+              placeholder="例如：在线提交 / 教学平台 / 线下提交"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>备注</ScheduleLabel>
+            <input
+              value={noteValue}
+              onChange={(e) => setNoteValue(e.target.value)}
+              placeholder="请输入备注（可选）"
+              style={scheduleInputStyle(darkMode)}
+            />
+
+            <ScheduleLabel colors={colors}>归属课程</ScheduleLabel>
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              style={scheduleInputStyle(darkMode)}
+            >
+              <option value="">不归属任何课程</option>
+
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.title}
+                </option>
+              ))}
+            </select>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "18px",
+                marginTop: "32px",
+              }}
+            >
+              <button
+                onClick={onCancel}
+                style={{
+                  border: "none",
+                  background: darkMode ? "#0F172A" : "#F1F5F9",
+                  color: colors.title,
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                }}
+              >
+                取消
+              </button>
+
+              <button
+                onClick={onConfirm}
+                style={{
+                  border: "none",
+                  background: colors.active,
+                  color: "#FFFFFF",
+                  borderRadius: "14px",
+                  padding: "14px 44px",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                  boxShadow: "0 14px 28px rgba(29,78,216,0.22)",
+                }}
+              >
+                保存日程
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-const pageStyle = {
-  height: "100vh",
-  padding: 12,
-  boxSizing: "border-box",
-};
-
-function workspaceStyle(colors, darkMode) {
-  return {
-    height: "100%",
-    display: "grid",
-    gridTemplateColumns: "272px minmax(0,1fr)",
-    background: colors.shell,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 14,
-    overflow: "hidden",
-    boxShadow: darkMode ? "0 18px 42px rgba(0,0,0,0.24)" : "0 18px 42px rgba(15,42,74,0.08)",
-  };
+function ScheduleLabel({ colors, children }) {
+  return (
+    <div
+      style={{
+        color: colors.text,
+        fontSize: "13px",
+        fontWeight: 700,
+        margin: "12px 0 8px",
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
-function sidebarStyle(colors, darkMode) {
-  return {
-    borderRight: `1px solid ${colors.border}`,
-    background: darkMode ? "rgba(15,23,42,0.46)" : "rgba(248,250,252,0.76)",
-    padding: "18px 16px",
-    overflowY: "auto",
-  };
-}
-
-function editorShellStyle(colors) {
-  return {
-    height: "100%",
-    minHeight: 0,
-    minWidth: 0,
-    overflow: "hidden",
-    display: "grid",
-    gridTemplateRows: "64px minmax(0,1fr) 44px",
-    background: colors.card,
-  };
-}
-
-function topbarStyle(colors) {
-  return {
-    borderBottom: `1px solid ${colors.border}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-    padding: "0 18px",
-    overflowX: "auto",
-  };
-}
-
-const toolbarLeftStyle = {
-  display: "flex",
-  gap: 8,
-  alignItems: "center",
-  flexWrap: "nowrap",
-};
-
-const toolbarRightStyle = {
-  display: "flex",
-  gap: 10,
-  alignItems: "center",
-  flexShrink: 0,
-};
-
-function bodyStyle(colors) {
-  return {
-    minHeight: 0,
-    height: "100%",
-    overflow: "hidden",
-    padding: "14px clamp(18px, 2.8vw, 36px) 16px",
-    boxSizing: "border-box",
-    display: "grid",
-    gridTemplateRows: "minmax(0,1fr)",
-  };
-}
-
-function noteCardStyle(colors) {
-  return {
-    background: colors.soft,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 12,
-    padding: "14px 14px 13px",
-    marginBottom: 18,
-  };
-}
-
-function sidebarTitleInputStyle(colors) {
-  return {
-    width: "100%",
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    color: colors.title,
-    fontSize: 18,
-    fontWeight: 800,
-    lineHeight: 1.35,
-    fontFamily: "Georgia, 'Times New Roman', 'Microsoft YaHei', serif",
-  };
-}
-
-function sidebarMetaStyle(colors) {
-  return {
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 1.5,
-    marginTop: 10,
-    wordBreak: "break-word",
-  };
-}
-
-function sidebarDateStyle(colors) {
-  return {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: 6,
-  };
-}
-
-const splitStyle = {
-  minHeight: 0,
-  height: "100%",
-  overflow: "hidden",
-  display: "grid",
-  gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
-  gap: 14,
-};
-
-function statusBarStyle(colors) {
-  return {
-    borderTop: `1px solid ${colors.border}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "0 18px",
-    color: colors.muted,
-    fontSize: 13,
-    flexShrink: 0,
-    background: colors.card,
-  };
-}
-
-function sidebarTitleStyle(colors) {
-  return { color: colors.active, fontSize: 18, fontWeight: 800, margin: "14px 0 16px" };
-}
-
-function courseNameStyle(colors) {
-  return { color: colors.muted, fontSize: 13, marginBottom: 16 };
-}
-
-function emptyTocStyle(colors) {
-  return {
-    color: colors.text,
-    background: colors.soft,
-    border: `1px dashed ${colors.border}`,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 13,
-    lineHeight: 1.7,
-  };
-}
-
-function tocItemStyle(colors, heading, active) {
-  return {
-    border: "none",
-    background: active ? colors.softer : "transparent",
-    color: active ? colors.active : colors.text,
-    borderRadius: 10,
-    padding: "9px 10px",
-    paddingLeft: `${10 + (heading.level - 1) * 18}px`,
-    cursor: "pointer",
-    textAlign: "left",
-    fontSize: heading.level === 1 ? 14 : 13,
-    fontWeight: heading.level === 1 ? 800 : 600,
-    fontFamily: "inherit",
-  };
-}
-
-function segmentButtonStyle(colors, active) {
-  return {
-    border: `1px solid ${active ? colors.active : colors.border}`,
-    background: active ? colors.softer : colors.soft,
-    color: active ? colors.active : colors.text,
-    borderRadius: 10,
-    padding: "9px 14px",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-    fontFamily: "inherit",
-    whiteSpace: "nowrap",
-  };
-}
-
-function toolButtonStyle(colors) {
-  return {
-    border: "none",
-    background: "transparent",
-    color: colors.title,
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 800,
-    padding: "8px 9px",
-    borderRadius: 8,
-    fontFamily: "inherit",
-    whiteSpace: "nowrap",
-  };
-}
-
-function secondaryButton(colors) {
-  return {
-    border: `1px solid ${colors.border}`,
-    background: colors.soft,
-    color: colors.active,
-    borderRadius: 10,
-    padding: "10px 16px",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-    fontFamily: "inherit",
-    whiteSpace: "nowrap",
-  };
-}
-
-function primaryButton(colors) {
-  return {
-    border: "none",
-    background: colors.active,
-    color: "white",
-    borderRadius: 10,
-    padding: "10px 18px",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-    fontFamily: "inherit",
-    boxShadow: "0 10px 22px rgba(29,78,216,0.18)",
-    whiteSpace: "nowrap",
-  };
-}
-
-function saveTipStyle(colors) {
-  return { color: colors.muted, fontSize: 12, minWidth: 72, textAlign: "right" };
-}
-
-function backButtonStyle(colors, darkMode) {
-  return {
-    border: `1px solid ${colors.border}`,
-    background: darkMode ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.86)",
-    color: colors.text,
-    padding: "9px 13px",
-    borderRadius: 10,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 700,
-    fontFamily: "inherit",
-    marginBottom: 14,
-  };
-}
-
-function symbolPanelStyle(colors) {
-  return {
-    position: "absolute",
-    top: "40px",
-    left: 0,
-    zIndex: 20,
-    width: 232,
-    display: "grid",
-    gridTemplateColumns: "repeat(8, 1fr)",
-    gap: 6,
-    background: colors.card,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 12,
-    padding: 10,
-    boxShadow: "0 18px 38px rgba(15,42,74,0.16)",
-  };
-}
-
-function symbolButtonStyle(colors) {
-  return {
-    height: 30,
-    border: `1px solid ${colors.border}`,
-    background: colors.soft,
-    color: colors.title,
-    borderRadius: 8,
-    cursor: "pointer",
-    fontWeight: 800,
-  };
-}
-
-function modalBackdropStyle(darkMode) {
-  return {
-    position: "fixed",
-    inset: 0,
-    zIndex: 100,
-    background: darkMode ? "rgba(0,0,0,0.42)" : "rgba(15,42,74,0.18)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  };
-}
-
-function inlineModalStyle(colors, darkMode) {
-  return {
-    width: 440,
-    background: darkMode ? "#172235" : "#FFFFFF",
-    border: `1px solid ${colors.border}`,
-    borderRadius: 14,
-    padding: 22,
-    boxShadow: darkMode ? "0 22px 44px rgba(0,0,0,0.38)" : "0 22px 44px rgba(15,42,74,0.16)",
-  };
-}
-
-function modalInputStyle(colors, darkMode) {
+function scheduleInputStyle(darkMode) {
   return {
     width: "100%",
-    height: 44,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 10,
+    height: "52px",
+    borderRadius: "12px",
+    border: darkMode
+      ? "1px solid rgba(148,163,184,0.24)"
+      : "1px solid #D6E0EF",
     background: darkMode ? "#0F172A" : "#FFFFFF",
-    color: colors.title,
-    padding: "0 12px",
+    color: darkMode ? "#F8FAFC" : "#183B63",
+    padding: "0 16px",
     boxSizing: "border-box",
+    fontSize: "15px",
     outline: "none",
+    fontFamily: "inherit",
     colorScheme: darkMode ? "dark" : "light",
   };
 }
 
-function notFoundStyle(colors) {
-  return {
-    minHeight: "100vh",
-    background: colors.bg,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: colors.text,
-  };
-}
 
-export default NoteEditorPage;
+export default HomePage;
