@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+from io import BytesIO
 from typing import Optional
 import base64
 import hashlib
@@ -508,7 +509,7 @@ def health():
     return {
         "status": "ok",
         "service": "notewhale-backend",
-        "version": "0.7.0-deepseek-stable",
+        "version": "0.8.0-vision-ocr-deepseek",
     }
 
 
@@ -1329,6 +1330,151 @@ def read_docx_text(file_path: Path):
         return ""
 
 
+def compress_image_for_vision(content: bytes, max_side: int = 1400, quality: int = 78):
+    """
+    压缩 PPT 中的大图，避免视觉模型请求体过大。
+    如果 Pillow 不可用，则小图直接原样返回，大图仍尽量返回原内容。
+    """
+    if not content:
+        return content, "image/jpeg"
+
+    try:
+        from PIL import Image
+
+        image = Image.open(BytesIO(content))
+        image = image.convert("RGB")
+
+        width, height = image.size
+        scale = min(1.0, max_side / max(width, height))
+        if scale < 1.0:
+            image = image.resize((int(width * scale), int(height * scale)))
+
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=quality, optimize=True)
+        return output.getvalue(), "image/jpeg"
+    except Exception:
+        return content, "image/jpeg"
+
+
+def call_vision_agent_for_slide_text(content: bytes, filename: str, index: int):
+    """
+    用视觉模型从 PPT 图片页中提取可见文字。
+    注意：这一步只做 OCR / 文字提取，不总结；总结仍交给 DeepSeek。
+    """
+    if not VISION_API_URL or not VISION_API_KEY or not VISION_MODEL:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "这个 PPT 可能是图片型课件，普通文本提取读不到内容。"
+                "需要配置视觉模型用于 OCR：NOTEWHALE_VISION_API_URL / NOTEWHALE_VISION_API_KEY / NOTEWHALE_VISION_MODEL。"
+            ),
+        )
+
+    if not content:
+        return ""
+
+    compressed, mime_type = compress_image_for_vision(content)
+    image_base64 = base64.b64encode(compressed).decode("utf-8")
+    image_url = f"data:{mime_type};base64,{image_base64}"
+
+    prompt = f"""
+你是 NoteWhale 的课件图片 OCR 智能体。
+
+任务：从第 {index} 张课件图片中提取所有可见文字。
+要求：
+1. 只提取图片中文字，不要总结，不要编造。
+2. 保留标题、项目符号、表格中的关键词、公式、页码。
+3. 如果看不清，写“看不清”。
+4. 用中文输出纯文本，不要 Markdown 代码块。
+"""
+
+    body = {
+        "model": VISION_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是课件图片文字提取助手，只负责OCR提取可见文字。",
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            },
+        ],
+        "temperature": 0.0,
+        "max_tokens": 900,
+        "stream": False,
+    }
+
+    request = urllib.request.Request(
+        VISION_API_URL,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {VISION_API_KEY}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=35) as response:
+            result = json.loads(response.read().decode("utf-8", errors="ignore"))
+        content_text = result["choices"][0]["message"]["content"]
+        return strip_markdown_fence(content_text)
+    except Exception:
+        return ""
+
+
+def read_pptx_image_ocr_text(file_path: Path, max_images: int = 6):
+    """
+    图片型 PPTX 兜底：
+    从 ppt/media 中挑选较大的图片，调用视觉模型提取文字。
+    然后再把提取出的文字交给 DeepSeek 总结。
+    """
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            image_names = [
+                name for name in z.namelist()
+                if name.startswith("ppt/media/")
+                and Path(name).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+            ]
+
+            if not image_names:
+                return ""
+
+            # 大图通常是整页截图；小图多为图标/Logo。优先识别大图。
+            image_names = sorted(
+                image_names,
+                key=lambda name: z.getinfo(name).file_size,
+                reverse=True,
+            )[:max_images]
+
+            parts = []
+            for index, name in enumerate(image_names, start=1):
+                try:
+                    blob = z.read(name)
+                except Exception:
+                    continue
+
+                # 小于 20KB 的多半是图标，跳过。
+                if len(blob) < 20 * 1024:
+                    continue
+
+                text_value = call_vision_agent_for_slide_text(blob, Path(name).name, index)
+                text_value = normalize_special_symbols(text_value or "").strip()
+
+                if text_value and "看不清" not in text_value:
+                    parts.append(f"[图片型课件识别 {index}]\n{text_value}")
+
+            return "\n\n".join(parts)
+    except HTTPException:
+        raise
+    except Exception:
+        return ""
+
+
 def normalize_ai_text(text: str, max_length: int = 1600):
     """轻量文本清洗：用于无外部大模型时的演示版 AI 笔记生成。"""
     if not text:
@@ -1363,7 +1509,12 @@ def try_read_resource_text(resource: Optional[Resource]):
         return read_pdf_text(file_path)
 
     if suffix == ".pptx":
-        return read_pptx_text(file_path)
+        pptx_text = read_pptx_text(file_path)
+        if len(normalize_ai_text(pptx_text, max_length=50000)) >= 80:
+            return pptx_text
+
+        # 图片型 PPTX：没有可编辑文字时，用视觉模型先做 OCR，再交给 DeepSeek。
+        return read_pptx_image_ocr_text(file_path, max_images=6)
 
     if suffix == ".docx":
         return read_docx_text(file_path)
@@ -1561,7 +1712,8 @@ def call_text_agent_for_course_note(
                 "没有读取到足够的资料正文。"
                 "请先点资料右侧“查看”确认文件能打开；"
                 "如果是旧资料记录，Render 重新部署后原文件可能已丢失，需要删除后重新上传。"
-                "若 Word/PPT 仍失败，请确认上传的是 .docx / .pptx，不是 .doc / .ppt。"
+                "若 Word/PPT 仍失败，请确认上传的是 .docx / .pptx，不是 .doc / .ppt；"
+                "如果 PPT 是图片型课件，需要配置视觉模型，系统会先 OCR 再交给 DeepSeek。"
             ),
         )
 
