@@ -388,9 +388,9 @@ function NoteEditorPage() {
               </div>
             </header>
 
-            <div style={bodyStyle(colors)}>
+            <div style={bodyStyle(colors, editorMode)}>
               {editorMode === "preview" ? (
-                <PreviewPanel colors={colors} content={content} previewRef={previewRef} />
+                <PreviewPanel colors={colors} content={content} previewRef={previewRef} fullPage />
               ) : editorMode === "split" ? (
                 <div style={splitStyle}>
                   <EditorTextarea
@@ -470,12 +470,13 @@ function EditorTextarea({ textareaRef, value, onChange, darkMode, colors, mode }
         lineHeight: isMarkdown ? 1.8 : 2.05,
         fontFamily: isMarkdown ? "Consolas, Menlo, monospace" : "Georgia, 'Times New Roman', 'Microsoft YaHei', serif",
         colorScheme: darkMode ? "dark" : "light",
+        overflowY: "auto",
       }}
     />
   );
 }
 
-function PreviewPanel({ colors, content, previewRef, compact = false }) {
+function PreviewPanel({ colors, content, previewRef, compact = false, fullPage = false }) {
   const blocks = renderPreviewBlocks(content, colors);
 
   return (
@@ -483,10 +484,10 @@ function PreviewPanel({ colors, content, previewRef, compact = false }) {
       ref={previewRef}
       style={{
         width: "100%",
-        height: "100%",
-        maxHeight: "100%",
-        minHeight: 0,
-        overflowY: "auto",
+        height: fullPage ? "auto" : "100%",
+        maxHeight: fullPage ? "none" : "100%",
+        minHeight: fullPage ? "100%" : 0,
+        overflowY: fullPage ? "visible" : "auto",
         overflowX: "hidden",
         overscrollBehavior: "contain",
         WebkitOverflowScrolling: "touch",
@@ -536,12 +537,12 @@ function renderPreviewBlocks(content = "", colors) {
       return;
     }
 
-    const heading = text.match(/^(#{1,3})\s+(.+)$/);
+    const heading = text.match(/^(#{1,4})\s+(.+)$/);
     if (heading) {
       flushList();
       const level = heading[1].length;
       const id = heading[2].trim().replace(/\s+/g, "-");
-      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : "h3";
+      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : level === 3 ? "h3" : "h4";
       blocks.push(
         <Tag
           key={`h-${index}`}
@@ -549,7 +550,7 @@ function renderPreviewBlocks(content = "", colors) {
           style={{
             color: colors.title,
             margin: level === 1 ? "26px 0 14px" : "22px 0 12px",
-            fontSize: level === 1 ? 30 : level === 2 ? 24 : 19,
+            fontSize: level === 1 ? 30 : level === 2 ? 24 : level === 3 ? 19 : 16,
             fontWeight: 800,
           }}
         >
@@ -976,15 +977,19 @@ const toolbarRightStyle = {
   flexShrink: 0,
 };
 
-function bodyStyle(colors) {
+function bodyStyle(colors, editorMode = "document") {
+  const isPreview = editorMode === "preview";
+
   return {
     minHeight: 0,
     height: "100%",
-    overflow: "hidden",
+    overflowX: "hidden",
+    overflowY: isPreview ? "auto" : "hidden",
     padding: "14px clamp(18px, 2.8vw, 36px) 16px",
     boxSizing: "border-box",
-    display: "grid",
-    gridTemplateRows: "minmax(0,1fr)",
+    display: isPreview ? "block" : "grid",
+    gridTemplateRows: isPreview ? undefined : "minmax(0,1fr)",
+    scrollBehavior: "smooth",
   };
 }
 
