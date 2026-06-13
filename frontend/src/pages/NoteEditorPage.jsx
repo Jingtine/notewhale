@@ -40,13 +40,18 @@ function NoteEditorPage() {
 
   const [backendCourses, setBackendCourses] = useState([]);
   const [backendNotes, setBackendNotes] = useState([]);
-  const [backendLoading, setBackendLoading] = useState(
-    isBackendCourseRoute || isBackendNoteRoute
-  );
+  const [backendLoading, setBackendLoading] = useState(true);
 
-  const backendCourse = isBackendCourseRoute
-    ? backendCourses.find((item) => String(item.id) === String(backendCourseId))
-    : null;
+  const backendCourse = backendCourses.find((item) => {
+    const rawCourseId = String(courseId || "");
+    const normalizedCourseId = rawCourseId.replace(/^api-/, "");
+
+    return (
+      String(item.id) === String(backendCourseId) ||
+      String(item.id) === normalizedCourseId ||
+      `api-${item.id}` === rawCourseId
+    );
+  });
 
   const course = localCourse ||
     (backendCourse
@@ -68,7 +73,17 @@ function NoteEditorPage() {
     [notes, backendNotes]
   );
 
-  const note = allNotes.find((item) => String(item.id) === String(noteId));
+  const note = allNotes.find((item) => {
+    const rawNoteId = String(noteId || "");
+    const normalizedNoteId = rawNoteId.replace(/^api-note-/, "");
+
+    return (
+      String(item.id) === rawNoteId ||
+      String(item.backendId || "") === normalizedNoteId ||
+      String(item.backendId || "") === rawNoteId ||
+      `api-note-${item.backendId}` === rawNoteId
+    );
+  });
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -80,11 +95,6 @@ function NoteEditorPage() {
   const [activeHeading, setActiveHeading] = useState("");
 
   useEffect(() => {
-    if (!isBackendCourseRoute && !isBackendNoteRoute) {
-      setBackendLoading(false);
-      return;
-    }
-
     let alive = true;
     setBackendLoading(true);
 
@@ -115,7 +125,7 @@ function NoteEditorPage() {
     return () => {
       alive = false;
     };
-  }, [isBackendCourseRoute, isBackendNoteRoute, backendCourseId, backendNoteId]);
+  }, [courseId, noteId]);
 
   useEffect(() => {
     if (!note) return;
@@ -270,7 +280,19 @@ function NoteEditorPage() {
   if (!note || !course) {
     return (
       <div style={notFoundStyle(colors)}>
-        {backendLoading ? "正在同步后端笔记..." : "笔记不存在或已被删除"}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ marginBottom: 16 }}>
+            {backendLoading ? "正在同步后端笔记..." : "笔记不存在或已被删除"}
+          </div>
+          {!backendLoading && (
+            <button
+              onClick={() => navigate(courseId ? `/course/${courseId}` : "/")}
+              style={secondaryButton(colors)}
+            >
+              返回课程
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -470,13 +492,12 @@ function EditorTextarea({ textareaRef, value, onChange, darkMode, colors, mode }
         lineHeight: isMarkdown ? 1.8 : 2.05,
         fontFamily: isMarkdown ? "Consolas, Menlo, monospace" : "Georgia, 'Times New Roman', 'Microsoft YaHei', serif",
         colorScheme: darkMode ? "dark" : "light",
-        overflowY: "auto",
       }}
     />
   );
 }
 
-function PreviewPanel({ colors, content, previewRef, compact = false, fullPage = false }) {
+function PreviewPanel({ colors, content, previewRef, compact = false }) {
   const blocks = renderPreviewBlocks(content, colors);
 
   return (
@@ -484,10 +505,10 @@ function PreviewPanel({ colors, content, previewRef, compact = false, fullPage =
       ref={previewRef}
       style={{
         width: "100%",
-        height: fullPage ? "auto" : "100%",
-        maxHeight: fullPage ? "none" : "100%",
-        minHeight: fullPage ? "100%" : 0,
-        overflowY: fullPage ? "visible" : "auto",
+        height: "100%",
+        maxHeight: "100%",
+        minHeight: 0,
+        overflowY: "auto",
         overflowX: "hidden",
         overscrollBehavior: "contain",
         WebkitOverflowScrolling: "touch",
@@ -537,12 +558,12 @@ function renderPreviewBlocks(content = "", colors) {
       return;
     }
 
-    const heading = text.match(/^(#{1,4})\s+(.+)$/);
+    const heading = text.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
       flushList();
       const level = heading[1].length;
       const id = heading[2].trim().replace(/\s+/g, "-");
-      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : level === 3 ? "h3" : "h4";
+      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : "h3";
       blocks.push(
         <Tag
           key={`h-${index}`}
@@ -550,7 +571,7 @@ function renderPreviewBlocks(content = "", colors) {
           style={{
             color: colors.title,
             margin: level === 1 ? "26px 0 14px" : "22px 0 12px",
-            fontSize: level === 1 ? 30 : level === 2 ? 24 : level === 3 ? 19 : 16,
+            fontSize: level === 1 ? 30 : level === 2 ? 24 : 19,
             fontWeight: 800,
           }}
         >
@@ -977,19 +998,15 @@ const toolbarRightStyle = {
   flexShrink: 0,
 };
 
-function bodyStyle(colors, editorMode = "document") {
-  const isPreview = editorMode === "preview";
-
+function bodyStyle(colors) {
   return {
     minHeight: 0,
     height: "100%",
-    overflowX: "hidden",
-    overflowY: isPreview ? "auto" : "hidden",
+    overflow: "hidden",
     padding: "14px clamp(18px, 2.8vw, 36px) 16px",
     boxSizing: "border-box",
-    display: isPreview ? "block" : "grid",
-    gridTemplateRows: isPreview ? undefined : "minmax(0,1fr)",
-    scrollBehavior: "smooth",
+    display: "grid",
+    gridTemplateRows: "minmax(0,1fr)",
   };
 }
 
