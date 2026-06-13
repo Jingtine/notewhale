@@ -1153,13 +1153,42 @@ function HomePage({ user = null, onLogout } = {}) {
   let visibleFolders = searchText ? searchedFolders : folders;
 
   function getCourseNoteCount(course) {
+    const courseIdText = String(course.id || "");
+    const backendIdText = course.backendId ? String(course.backendId) : "";
+    const seen = new Set();
+
     return allNotesForSearch.filter((note) => {
-      return (
-        String(note.courseId || "") === String(course.id) ||
-        String(note.courseId || "") === String(course.backendId || "") ||
-        String(note.backendCourseId || "") === String(course.backendId || "") ||
-        String(note.courseName || "") === String(course.title || "")
-      );
+      const noteKey = note.backendId
+        ? `backend-${note.backendId}`
+        : `local-${note.id || note.title || note.createdAt}`;
+
+      if (seen.has(noteKey)) return false;
+
+      const noteCourseId = String(note.courseId || "");
+      const noteBackendCourseId = note.backendCourseId
+        ? String(note.backendCourseId)
+        : "";
+
+      let matched = false;
+
+      if (backendIdText) {
+        matched =
+          noteBackendCourseId === backendIdText ||
+          noteCourseId === `api-${backendIdText}` ||
+          noteCourseId === courseIdText;
+      } else {
+        matched =
+          noteCourseId === courseIdText ||
+          (!noteCourseId &&
+            !noteBackendCourseId &&
+            String(note.courseName || "") === String(course.title || ""));
+      }
+
+      if (matched) {
+        seen.add(noteKey);
+      }
+
+      return matched;
     }).length;
   }
 
@@ -1177,13 +1206,42 @@ function HomePage({ user = null, onLogout } = {}) {
   }
 
   function getCourseResourceCount(course) {
+    const courseIdText = String(course.id || "");
+    const backendIdText = course.backendId ? String(course.backendId) : "";
+    const seen = new Set();
+
     return allResourcesForSearch.filter((resource) => {
-      return (
-        String(resource.courseId || "") === String(course.id) ||
-        String(resource.courseId || "") === String(course.backendId || "") ||
-        String(resource.backendCourseId || "") === String(course.backendId || "") ||
-        String(resource.courseName || "") === String(course.title || "")
-      );
+      const resourceKey = resource.backendId
+        ? `backend-${resource.backendId}`
+        : `local-${resource.id || resource.filename || resource.name || resource.createdAt}`;
+
+      if (seen.has(resourceKey)) return false;
+
+      const resourceCourseId = String(resource.courseId || "");
+      const resourceBackendCourseId = resource.backendCourseId
+        ? String(resource.backendCourseId)
+        : "";
+
+      let matched = false;
+
+      if (backendIdText) {
+        matched =
+          resourceBackendCourseId === backendIdText ||
+          resourceCourseId === `api-${backendIdText}` ||
+          resourceCourseId === courseIdText;
+      } else {
+        matched =
+          resourceCourseId === courseIdText ||
+          (!resourceCourseId &&
+            !resourceBackendCourseId &&
+            String(resource.courseName || "") === String(course.title || ""));
+      }
+
+      if (matched) {
+        seen.add(resourceKey);
+      }
+
+      return matched;
     }).length;
   }
 
