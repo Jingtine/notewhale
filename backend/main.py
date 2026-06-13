@@ -93,6 +93,8 @@ def ensure_schema():
             resource_columns = {column["name"] for column in inspector.get_columns("resources")}
             if "user_id" not in resource_columns:
                 conn.execute(text("ALTER TABLE resources ADD COLUMN user_id INTEGER"))
+            if "extracted_text" not in resource_columns:
+                conn.execute(text("ALTER TABLE resources ADD COLUMN extracted_text TEXT"))
 
 
 ensure_schema()
@@ -422,6 +424,8 @@ def resource_to_dict(resource: Resource):
         "size": resource.size,
         "courseId": resource.course_id,
         "courseName": resource.course_name,
+        "textReady": len(getattr(resource, "extracted_text", "") or "") >= 80,
+        "extractedTextLength": len(getattr(resource, "extracted_text", "") or ""),
         "createdAt": timestamp(resource.created_at),
     }
 
@@ -1383,13 +1387,9 @@ def normalize_ai_text(text: str, max_length: int = 1600):
     return cleaned[:max_length]
 
 
-def try_read_resource_text(resource: Optional[Resource]):
-    """尽量读取用户上传的资料正文：txt / md / pdf / pptx / docx。"""
-    if not resource:
-        return ""
-
-    file_path = Path(resource.file_path)
-    if not file_path.exists() or not file_path.is_file():
+def try_read_file_text(file_path: Path):
+    """按文件后缀读取资料正文。"""
+    if not file_path or not file_path.exists() or not file_path.is_file():
         return ""
 
     suffix = file_path.suffix.lower()
@@ -1407,6 +1407,31 @@ def try_read_resource_text(resource: Optional[Resource]):
         return read_docx_text(file_path)
 
     return ""
+
+
+def try_read_resource_text(resource: Optional[Resource]):
+    """
+    尽量读取用户上传的资料正文。
+
+    关键修复：
+    - Render / Vercel 这类平台重新部署后，backend/uploads 里的临时文件可能消失；
+    - 数据库里的资源记录仍然存在，所以页面还能看到文件，但 AI 读不到文件正文；
+    - 因此优先使用数据库中持久化保存的 extracted_text。
+    """
+    if not resource:
+        return ""
+
+    stored_text = normalize_ai_text(getattr(resource, "extracted_text", "") or "", max_length=50000)
+    if len(stored_text) >= 80:
+        return stored_text
+
+    try:
+        file_path = Path(resource.file_path)
+    except Exception:
+        return stored_text
+
+    file_text = normalize_ai_text(try_read_file_text(file_path), max_length=50000)
+    return file_text or stored_text
 
 
 def infer_ai_keywords(course_name: str, resource_name: str, raw_text: str = ""):
@@ -1764,6 +1789,17 @@ def generate_note(
     file_resource_text = try_read_resource_text(resource)
     raw_resource_text = normalize_ai_text(payload.rawText, max_length=24000)
     resource_text = file_resource_text or raw_resource_text
+
+    # 如果当前部署实例还能读到文件，就把提取出的正文持久化进数据库。
+    # 这样下一次 Render 重新部署、uploads 文件丢失后，AI 笔记仍然能使用 extracted_text。
+    if resource and resource_text and len(resource_text) >= 80 and not getattr(resource, "extracted_text", ""):
+        try:
+            resource.extracted_text = normalize_ai_text(resource_text, max_length=50000)
+            db.commit()
+            db.refresh(resource)
+        except Exception:
+            db.rollback()
+
     resource_name = resource.name if resource else payload.resourceName
     course_name = payload.courseName or "课程"
 
@@ -2045,6 +2081,8 @@ async def upload_resource(
     content = await file.read()
     file_path.write_bytes(content)
 
+    extracted_text = normalize_ai_text(try_read_file_text(file_path), max_length=50000)
+
     resource = Resource(
         name=raw_name,
         file_type=get_file_type(raw_name),
@@ -2053,6 +2091,7 @@ async def upload_resource(
         course_id=courseId,
         course_name=courseName or "",
         user_id=current_user.id,
+        extracted_text=extracted_text,
     )
 
     db.add(resource)
