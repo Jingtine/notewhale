@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { InlineMath, BlockMath } from "react-katex";
+import "katex/dist/katex.min.css";
 import { getCourses } from "../api/courseApi";
 import {
   getNotes as getBackendNotes,
@@ -539,7 +541,7 @@ function renderPreviewBlocks(content = "", colors) {
     blocks.push(
       <ul key={`ul-${blocks.length}`} style={{ margin: "10px 0 18px", paddingLeft: 24 }}>
         {listItems.map((item, index) => (
-          <li key={index} style={{ margin: "6px 0" }}>{convertLatexText(item)}</li>
+          <li key={index} style={{ margin: "6px 0" }}><InlineContent text={item} colors={colors} /></li>
         ))}
       </ul>
     );
@@ -556,6 +558,27 @@ function renderPreviewBlocks(content = "", colors) {
     }
 
     if (text === "$$") {
+      return;
+    }
+
+    const blockMath =
+      text.match(/^\$\$(.+)\$\$$/) ||
+      text.match(/^\\\[(.+)\\\]$/);
+
+    if (blockMath) {
+      flushList();
+      blocks.push(
+        <div key={`math-${index}`} style={{ margin: "18px 0", overflowX: "auto" }}>
+          <BlockMath
+            math={normalizeFormula(blockMath[1])}
+            renderError={() => (
+              <pre style={formulaFallbackStyle(colors)}>
+                {convertLatexText(blockMath[1])}
+              </pre>
+            )}
+          />
+        </div>
+      );
       return;
     }
 
@@ -576,7 +599,7 @@ function renderPreviewBlocks(content = "", colors) {
             fontWeight: 800,
           }}
         >
-          {convertLatexText(heading[2])}
+          <InlineContent text={heading[2]} colors={colors} />
         </Tag>
       );
       return;
@@ -593,7 +616,7 @@ function renderPreviewBlocks(content = "", colors) {
       flushList();
       blocks.push(
         <p key={`ol-${index}`} style={{ margin: "8px 0 8px 18px", color: colors.title }}>
-          {convertLatexText(orderedList[1])}
+          <InlineContent text={orderedList[1]} colors={colors} />
         </p>
       );
       return;
@@ -629,7 +652,7 @@ function renderPreviewBlocks(content = "", colors) {
             borderRadius: 10,
           }}
         >
-          {convertLatexText(quote[1])}
+          <InlineContent text={quote[1]} colors={colors} />
         </blockquote>
       );
       return;
@@ -638,13 +661,189 @@ function renderPreviewBlocks(content = "", colors) {
     flushList();
     blocks.push(
       <p key={`p-${index}`} style={{ margin: "10px 0", color: colors.title }}>
-        {convertLatexText(text)}
+        <InlineContent text={text} colors={colors} />
       </p>
     );
   });
 
   flushList();
   return blocks;
+}
+
+function InlineContent({ text = "", colors }) {
+  const segments = splitInlineMath(String(text));
+
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (!segment.math) {
+          return (
+            <span key={`text-${index}`}>
+              {convertLatexText(segment.value)}
+            </span>
+          );
+        }
+
+        return (
+          <span
+            key={`math-${index}`}
+            style={{
+              display: "inline-block",
+              maxWidth: "100%",
+              overflowX: "auto",
+              verticalAlign: "middle",
+              margin: "0 2px",
+            }}
+          >
+            <InlineMath
+              math={normalizeFormula(segment.value)}
+              renderError={() => (
+                <code style={inlineFormulaFallbackStyle(colors)}>
+                  {convertLatexText(segment.value)}
+                </code>
+              )}
+            />
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function splitInlineMath(value = "") {
+  const segments = [];
+  let index = 0;
+
+  function pushText(end) {
+    if (end > index) {
+      segments.push({
+        math: false,
+        value: value.slice(index, end),
+      });
+    }
+  }
+
+  while (index < value.length) {
+    const slashParen = value.indexOf("\\(", index);
+    const dollar = value.indexOf("$", index);
+
+    let start = -1;
+    let delimiter = "";
+
+    if (slashParen !== -1 && (dollar === -1 || slashParen < dollar)) {
+      start = slashParen;
+      delimiter = "\\(";
+    } else if (dollar !== -1) {
+      start = dollar;
+      delimiter = "$";
+    }
+
+    if (start === -1) {
+      pushText(value.length);
+      break;
+    }
+
+    if (delimiter === "$" && value[start + 1] === "$") {
+      const end = value.indexOf("$$", start + 2);
+      if (end === -1) {
+        pushText(value.length);
+        break;
+      }
+
+      pushText(start);
+      segments.push({
+        math: true,
+        value: value.slice(start + 2, end),
+      });
+      index = end + 2;
+      continue;
+    }
+
+    if (delimiter === "\\(") {
+      const end = value.indexOf("\\)", start + 2);
+      if (end === -1) {
+        pushText(value.length);
+        break;
+      }
+
+      pushText(start);
+      segments.push({
+        math: true,
+        value: value.slice(start + 2, end),
+      });
+      index = end + 2;
+      continue;
+    }
+
+    const end = value.indexOf("$", start + 1);
+    if (end === -1) {
+      pushText(value.length);
+      break;
+    }
+
+    pushText(start);
+    segments.push({
+      math: true,
+      value: value.slice(start + 1, end),
+    });
+    index = end + 1;
+  }
+
+  return segments.length
+    ? segments
+    : [
+        {
+          math: false,
+          value,
+        },
+      ];
+}
+
+function normalizeFormula(value = "") {
+  return String(value)
+    .trim()
+    .replace(/α/g, "\\alpha")
+    .replace(/β/g, "\\beta")
+    .replace(/γ/g, "\\gamma")
+    .replace(/π/g, "\\pi")
+    .replace(/θ/g, "\\theta")
+    .replace(/λ/g, "\\lambda")
+    .replace(/μ/g, "\\mu")
+    .replace(/Δ/g, "\\Delta")
+    .replace(/≤/g, "\\leq")
+    .replace(/≥/g, "\\geq")
+    .replace(/≠/g, "\\neq")
+    .replace(/≈/g, "\\approx")
+    .replace(/→/g, "\\rightarrow")
+    .replace(/⇒/g, "\\Rightarrow")
+    .replace(/⇔/g, "\\Leftrightarrow")
+    .replace(/∑/g, "\\sum")
+    .replace(/∫/g, "\\int")
+    .replace(/∞/g, "\\infty");
+}
+
+function inlineFormulaFallbackStyle(colors) {
+  return {
+    color: colors?.active || "#1D4ED8",
+    background: colors?.soft || "#F8FAFC",
+    borderRadius: 6,
+    padding: "1px 4px",
+    fontFamily: "Consolas, Menlo, monospace",
+    fontSize: "0.95em",
+  };
+}
+
+function formulaFallbackStyle(colors) {
+  return {
+    margin: 0,
+    whiteSpace: "pre-wrap",
+    color: colors?.title || "#183B63",
+    background: colors?.soft || "#F8FAFC",
+    borderRadius: 10,
+    padding: "12px 14px",
+    fontFamily: "Consolas, Menlo, monospace",
+    fontSize: 14,
+  };
 }
 
 function SymbolPanel({ colors, onInsert }) {
