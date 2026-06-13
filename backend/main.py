@@ -9,6 +9,7 @@ import mimetypes
 import os
 import secrets
 import urllib.request
+import urllib.error
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -507,7 +508,7 @@ def health():
     return {
         "status": "ok",
         "service": "notewhale-backend",
-        "version": "0.6.0-ai",
+        "version": "0.7.0-deepseek-stable",
     }
 
 
@@ -1517,23 +1518,20 @@ def strip_markdown_fence(value: str):
     return text_value.strip()
 
 
-def pick_lines(text: str, limit: int = 28):
-    lines = [line.strip() for line in str(text or "").split("\n") if line.strip()]
-    useful = []
-    seen = set()
+def strip_markdown_fence(value: str):
+    if not value:
+        return ""
 
-    for line in lines:
-        compact = " ".join(line.split())
-        if len(compact) < 4:
-            continue
-        if compact in seen:
-            continue
-        seen.add(compact)
-        useful.append(compact)
-        if len(useful) >= limit:
-            break
+    text_value = str(value).strip()
 
-    return useful
+    if text_value.startswith("```"):
+        text_value = text_value.strip("`").strip()
+        if text_value.lower().startswith("markdown"):
+            text_value = text_value[8:].strip()
+        elif text_value.lower().startswith("md"):
+            text_value = text_value[2:].strip()
+
+    return text_value.strip()
 
 
 def call_text_agent_for_course_note(
@@ -1543,13 +1541,18 @@ def call_text_agent_for_course_note(
     note_style: str = "复习型",
 ):
     """
-    稳定演示版：不调用外部大模型，直接根据已提取正文生成结构化 Markdown 笔记。
-    作用：
-    - 避免 DeepSeek / GLM 网络超时导致前端 Failed to fetch；
-    - 先验证“资料文字提取 → 生成笔记 → 保存笔记 → 打开编辑器”完整链路；
-    - 后续再把这部分切回真正大模型即可。
+    DeepSeek 稳定版：
+    - 必须调用 DeepSeek / OpenAI-compatible chat/completions；
+    - 控制输入长度和输出长度，避免 Render 请求超时导致前端 Failed to fetch；
+    - 如果 DeepSeek 返回错误，后端返回可读 detail，不让前端只看到空泛错误。
     """
-    clean_text = normalize_ai_text(resource_text, max_length=12000)
+    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
+        raise HTTPException(
+            status_code=503,
+            detail="未配置 DeepSeek 文本模型。请在 Render 环境变量中设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
+        )
+
+    clean_text = normalize_ai_text(resource_text, max_length=6500)
 
     if len(clean_text) < 20:
         raise HTTPException(
@@ -1562,103 +1565,125 @@ def call_text_agent_for_course_note(
             ),
         )
 
-    lines = pick_lines(clean_text, limit=36)
-    preview = lines[:10]
-    detail_lines = lines[:24]
+    prompt = f"""
+你是 NoteWhale 的课程资料精读笔记智能体。请根据用户上传资料的可读取正文，生成一份中文 Markdown 复习笔记。
 
-    keywords = infer_ai_keywords(course_name, resource_name, clean_text)
-    keyword_text = "、".join(keywords[:8]) if keywords else "核心概念、知识结构、课堂重点、复习问题"
+硬性要求：
+1. 必须基于资料正文，不要编造资料中没有的信息。
+2. 不要只写空泛大纲，要尽量保留资料中的具体概念、定义、观点、分类、逻辑关系。
+3. 输出 Markdown 正文，不要包裹代码块。
+4. 笔记长度控制在 1200-1800 字，保证稳定返回。
+5. 如果资料中有公式，请用 $...$ 或 $$...$$ 包裹，并用中文解释符号含义。
+6. 如果资料信息不足，请明确写“资料中未给出”。
 
-    detail_sections = []
-    chunk_size = 4
-    for index in range(0, len(detail_lines), chunk_size):
-        chunk = detail_lines[index:index + chunk_size]
-        if not chunk:
-            continue
-        section_no = index // chunk_size + 1
-        detail_sections.append(
-            f"### {section_no}. 内容片段 {section_no}\n\n"
-            + "\n".join([f"- {item}" for item in chunk])
-            + "\n\n**复习提示：** 理解本组内容之间的因果、定义或并列关系，并结合课堂讲解补充例子。"
-        )
+请按下面结构输出：
 
-    if not detail_sections:
-        detail_sections.append("### 1. 资料正文\n\n" + clean_text[:800])
-
-    note = f"""# {resource_name}｜课程资料笔记
-
-> 课程：{course_name or "未命名课程"}  
-> 生成方式：稳定演示版，基于资料可提取正文自动整理  
-> 建议：生成后可在编辑器中继续补充老师课堂强调内容。
+# {resource_name}｜AI 课程笔记
 
 ## 一、资料速读
-
-本资料主要围绕 **{course_name or resource_name}** 展开。根据文件中可读取的文字内容，初步可抓住以下关键词：
-
-**{keyword_text}**
-
-资料中的高频或靠前内容包括：
-
-{chr(10).join([f"- {item}" for item in preview]) if preview else "- 暂未读取到明显段落，但文件已被识别为可处理资料。"}
+用 3-5 句话概括资料主题、核心问题和学习价值。
 
 ## 二、知识结构
+用分层列表梳理资料结构，不要泛泛而谈，尽量使用资料中的原词。
 
-可以按下面的方式整理复习：
+## 三、重点内容精读
+按资料顺序整理 5-8 个重点小节。每个小节包括：
+- 本节讲什么
+- 关键概念
+- 逻辑关系
+- 复习提醒
 
-1. **基本概念**：先明确材料中出现的核心术语、定义和基本判断。
-2. **逻辑关系**：再梳理概念之间的因果关系、对比关系或层级关系。
-3. **重点内容**：把老师可能强调、作业可能涉及的内容单独标记。
-4. **应用场景**：结合例题、案例或课堂讨论理解材料内容。
-5. **待补充部分**：把资料没有展开但考试或作业可能需要的内容继续补全。
-
-## 三、逐段精读
-
-{chr(10).join(detail_sections)}
-
-## 四、重点概念整理
-
-以下概念需要优先复习：
-
-{chr(10).join([f"- **{kw}**：结合资料原文，补充定义、例子、易错点和应用场景。" for kw in keywords[:8]]) if keywords else "- **核心概念**：请根据课堂讲解补充定义、例子与易错点。"}
+## 四、重点概念详解
+选出 6-10 个资料中的概念。每个概念解释：含义、重要性、相关概念、易错点。
 
 ## 五、易混淆点
+整理 3-5 组容易混淆的内容。
 
-- 注意区分“定义性内容”和“解释性内容”：前者要准确记忆，后者要理解逻辑。
-- 注意区分“并列关系”和“因果关系”：复习时不要只背关键词，要能说清楚为什么。
-- 如果资料中出现公式、模型或流程图，建议补充每个符号、变量或步骤的含义。
-- 如果资料是 PPT，页面上的短句往往只是提示语，需要结合课堂讲解补全。
+## 六、自测题
+给出 4-6 个复习题，并写答题要点。
 
-## 六、可回查索引
+## 七、待补充清单
+列出需要学生继续补充的课堂内容、教材页码、案例或图表解释。
 
-- 资料名称：{resource_name}
-- 课程名称：{course_name or "未命名课程"}
-- 推荐回查内容：标题页、定义页、图表页、结论页、老师强调页。
-- 复习顺序：先看关键词 → 再看逐段精读 → 最后补充课堂笔记。
+课程：{course_name or "未命名课程"}
+资料：{resource_name}
+笔记类型：{note_style}
 
-## 七、自测题与答题要点
+资料正文：
+{clean_text}
+""".strip()
 
-1. 这份资料的主题是什么？  
-   **答题要点：** 用 2-3 句话概括资料核心问题和主要内容。
+    body = {
+        "model": TEXT_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是一个严谨的课程资料精读与复习笔记生成助手，只根据用户提供的资料正文写笔记。",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "temperature": 0.25,
+        "max_tokens": 2200,
+        "stream": False,
+    }
 
-2. 资料中最重要的 3 个概念是什么？  
-   **答题要点：** 写出概念名称、定义、与其他概念的关系。
+    request = urllib.request.Request(
+        TEXT_API_URL,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {TEXT_API_KEY}",
+        },
+        method="POST",
+    )
 
-3. 资料中哪些内容最可能成为作业或考试考点？  
-   **答题要点：** 优先关注定义、模型、对比、原因、影响和案例分析。
+    try:
+        with urllib.request.urlopen(request, timeout=55) as response:
+            raw = response.read().decode("utf-8", errors="ignore")
+            result = json.loads(raw)
+    except urllib.error.HTTPError as error:
+        try:
+            error_body = error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = str(error)
 
-4. 如果向同学讲解这份资料，应该按什么顺序讲？  
-   **答题要点：** 先背景，后概念，再逻辑，最后举例或总结。
+        if error.code == 401:
+            detail = "DeepSeek API Key 无效或没有权限，请检查 Render 环境变量 NOTEWHALE_TEXT_API_KEY。"
+        elif error.code == 429:
+            detail = "DeepSeek 请求过于频繁或额度受限，请等待 1-3 分钟后重试。"
+        elif error.code in {400, 422}:
+            detail = f"DeepSeek 请求参数错误，请检查模型名和接口地址。返回：{error_body[:500]}"
+        else:
+            detail = f"DeepSeek 调用失败，HTTP {error.code}：{error_body[:500]}"
 
-## 八、待补充清单
+        raise HTTPException(status_code=502, detail=detail)
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "DeepSeek 调用超时或网络中断。"
+                "请先用较小的资料测试，或稍后重试。"
+                f"错误：{str(error)[:300]}"
+            ),
+        )
 
-- [ ] 补充老师课堂强调内容
-- [ ] 补充教材页码或参考章节
-- [ ] 补充例题、案例或图表解释
-- [ ] 标记作业 / 考试重点
-- [ ] 检查公式、术语和专有名词是否准确
-"""
+    try:
+        content = result["choices"][0]["message"]["content"]
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail=f"DeepSeek 返回格式异常，未找到 choices[0].message.content。返回：{str(result)[:500]}",
+        )
 
-    return note.strip()
+    content = strip_markdown_fence(content)
+
+    if not content or len(content) < 80:
+        raise HTTPException(status_code=502, detail="DeepSeek 返回内容过短，请稍后重试或换用文字更多的资料。")
+
+    return content
 
 
 
