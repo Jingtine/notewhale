@@ -27,10 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as startup_error:
-    print(f"[NoteWhale startup] create_all skipped: {startup_error}")
+Base.metadata.create_all(bind=engine)
 
 SECRET_KEY = os.getenv("NOTEWHALE_SECRET_KEY", "notewhale-local-dev-secret-change-before-deploy")
 TOKEN_EXPIRE_DAYS = int(os.getenv("NOTEWHALE_TOKEN_EXPIRE_DAYS", "14"))
@@ -82,10 +79,7 @@ def ensure_schema():
             table_names = inspector.get_table_names()
 
             if "users" not in table_names:
-                try:
-                    Base.metadata.create_all(bind=engine)
-                except Exception as startup_error:
-                    print(f"[NoteWhale startup] create_all in ensure_schema skipped: {startup_error}")
+                Base.metadata.create_all(bind=engine)
                 inspector = inspect(engine)
                 table_names = inspector.get_table_names()
 
@@ -132,6 +126,8 @@ def ensure_schema():
                 resource_columns = {column["name"] for column in inspector.get_columns("resources")}
                 if "user_id" not in resource_columns:
                     safe_add_column(conn, "resources", "user_id", int_type)
+                if "extracted_text" not in resource_columns:
+                    safe_add_column(conn, "resources", "extracted_text", "TEXT")
     except Exception:
         # 不让数据库补字段逻辑影响服务启动。
         pass
@@ -142,7 +138,7 @@ ensure_schema()
 app = FastAPI(
     title="NoteWhale API",
     description="鲸记 NoteWhale 后端接口",
-    version="0.7.2-deepseek-render-safe",
+    version="0.7.3-persist-extracted-text",
 )
 
 # Frontend origins allowed to call this API.
@@ -464,6 +460,8 @@ def resource_to_dict(resource: Resource):
         "size": resource.size,
         "courseId": resource.course_id,
         "courseName": resource.course_name,
+        "textReady": len(getattr(resource, "extracted_text", "") or "") >= 20,
+        "extractedTextLength": len(getattr(resource, "extracted_text", "") or ""),
         "createdAt": timestamp(resource.created_at),
     }
 
@@ -547,7 +545,7 @@ def health():
     return {
         "status": "ok",
         "service": "notewhale-backend",
-        "version": "0.7.2-deepseek-render-safe",
+        "version": "0.7.3-persist-extracted-text",
     }
 
 
@@ -1384,13 +1382,9 @@ def normalize_ai_text(text: str, max_length: int = 1600):
     return cleaned[:max_length]
 
 
-def try_read_resource_text(resource: Optional[Resource]):
-    """尽量读取用户上传的资料正文：txt / md / pdf / pptx / docx。"""
-    if not resource:
-        return ""
-
-    file_path = Path(resource.file_path)
-    if not file_path.exists() or not file_path.is_file():
+def try_read_file_text(file_path: Path):
+    """按文件后缀读取资料正文。"""
+    if not file_path or not file_path.exists() or not file_path.is_file():
         return ""
 
     suffix = file_path.suffix.lower()
@@ -1408,6 +1402,49 @@ def try_read_resource_text(resource: Optional[Resource]):
         return read_docx_text(file_path)
 
     return ""
+
+
+def try_read_resource_text(resource: Optional[Resource]):
+    """
+    尽量读取用户上传的资料正文。
+    优先使用数据库中持久化的 extracted_text，避免 Render 重新部署后 uploads 临时文件丢失。
+    """
+    if not resource:
+        return ""
+
+    stored_text = normalize_ai_text(getattr(resource, "extracted_text", "") or "", max_length=50000)
+    if len(stored_text) >= 20:
+        return stored_text
+
+    try:
+        file_path = Path(resource.file_path)
+    except Exception:
+        return stored_text
+
+    return normalize_ai_text(try_read_file_text(file_path), max_length=50000) or stored_text
+
+
+def get_resource_debug(resource: Optional[Resource]):
+    if not resource:
+        return {"resourceFound": False}
+
+    try:
+        file_path = Path(resource.file_path)
+        file_exists = file_path.exists()
+        file_size = file_path.stat().st_size if file_exists else 0
+    except Exception:
+        file_exists = False
+        file_size = 0
+
+    return {
+        "resourceFound": True,
+        "resourceId": resource.id,
+        "resourceName": resource.name,
+        "filePath": getattr(resource, "file_path", ""),
+        "fileExists": file_exists,
+        "fileSize": file_size,
+        "storedTextLength": len(getattr(resource, "extracted_text", "") or ""),
+    }
 
 
 def infer_ai_keywords(course_name: str, resource_name: str, raw_text: str = ""):
@@ -1757,6 +1794,28 @@ def generate_note(
         )
 
     resource_text = normalize_ai_text(payload.rawText, max_length=12000) or try_read_resource_text(resource)
+
+    # 如果上传后还没存入 extracted_text，但当前实例还能读到文件，就补写到数据库。
+    if resource and resource_text and len(resource_text) >= 20 and not (getattr(resource, "extracted_text", "") or ""):
+        try:
+            resource.extracted_text = normalize_ai_text(resource_text, max_length=50000)
+            db.commit()
+            db.refresh(resource)
+        except Exception:
+            db.rollback()
+
+    if len(normalize_ai_text(resource_text, max_length=200)) < 20:
+        debug_info = get_resource_debug(resource)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "没有读取到足够的资料正文。"
+                "如果调试信息里 fileExists=false，说明 Render 的 uploads 临时文件已丢失，请删除旧资料后重新上传；"
+                "如果 fileExists=true 但 storedTextLength=0，说明该文件没有可提取文字，或是图片型/扫描型资料。"
+                f" 调试信息：{debug_info}"
+            ),
+        )
+
     resource_name = resource.name if resource else payload.resourceName
     course_name = payload.courseName or "课程"
 
@@ -2038,6 +2097,8 @@ async def upload_resource(
     content = await file.read()
     file_path.write_bytes(content)
 
+    extracted_text = normalize_ai_text(try_read_file_text(file_path), max_length=50000)
+
     resource = Resource(
         name=raw_name,
         file_type=get_file_type(raw_name),
@@ -2046,6 +2107,7 @@ async def upload_resource(
         course_id=courseId,
         course_name=courseName or "",
         user_id=current_user.id,
+        extracted_text=extracted_text,
     )
 
     db.add(resource)
@@ -2053,6 +2115,28 @@ async def upload_resource(
     db.refresh(resource)
 
     return resource_to_dict(resource)
+
+
+@app.get("/api/resources/{resource_id}/text-status")
+def get_resource_text_status(
+    resource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    resource = (
+        db.query(Resource)
+        .filter(Resource.id == resource_id, Resource.user_id == current_user.id)
+        .first()
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="资料不存在")
+
+    debug_info = get_resource_debug(resource)
+    text_value = try_read_resource_text(resource)
+    debug_info["currentReadableLength"] = len(text_value or "")
+    debug_info["textReady"] = len(text_value or "") >= 20
+    debug_info["preview"] = (text_value or "")[:300]
+    return debug_info
 
 
 @app.delete("/api/resources/{resource_id}")
