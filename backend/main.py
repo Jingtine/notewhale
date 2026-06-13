@@ -1145,6 +1145,122 @@ def read_plain_text_file(file_path: Path):
             return ""
 
 
+def normalize_special_symbols(value: str):
+    """统一常见公式 / 逻辑 / 数学符号，减少生成笔记时的乱码和 LaTeX 残留。"""
+    if not value:
+        return ""
+
+    text_value = str(value)
+
+    replacements = {
+        "\\leq": "≤",
+        "\\le": "≤",
+        "<=": "≤",
+        "≤": "≤",
+        "\\geq": "≥",
+        "\\ge": "≥",
+        ">=": "≥",
+        "≥": "≥",
+        "\\neq": "≠",
+        "!=": "≠",
+        "\\approx": "≈",
+        "\\equiv": "≡",
+        "\\pm": "±",
+        "\\times": "×",
+        "\\div": "÷",
+        "\\cdot": "·",
+        "\\rightarrow": "→",
+        "\\Rightarrow": "⇒",
+        "\\leftarrow": "←",
+        "\\leftrightarrow": "↔",
+        "\\Leftrightarrow": "⇔",
+        "\\to": "→",
+        "\\infty": "∞",
+        "\\sum": "∑",
+        "\\int": "∫",
+        "\\sqrt": "√",
+        "\\in": "∈",
+        "\\notin": "∉",
+        "\\subseteq": "⊆",
+        "\\subset": "⊂",
+        "\\cup": "∪",
+        "\\cap": "∩",
+        "\\emptyset": "∅",
+        "\\forall": "∀",
+        "\\exists": "∃",
+        "\\therefore": "∴",
+        "\\because": "∵",
+        "\\partial": "∂",
+        "\\nabla": "∇",
+        "\\Delta": "Δ",
+        "\\alpha": "α",
+        "\\beta": "β",
+        "\\gamma": "γ",
+        "\\lambda": "λ",
+        "\\mu": "μ",
+        "\\pi": "π",
+        "\\theta": "θ",
+        "\\omega": "ω",
+        "∵": "∵",
+        "∴": "∴",
+    }
+
+    for old, new in replacements.items():
+        text_value = text_value.replace(old, new)
+
+    # 常见全角符号归一
+    text_value = (
+        text_value.replace("－", "-")
+        .replace("—", "—")
+        .replace("×", "×")
+        .replace("÷", "÷")
+        .replace("（", "(")
+        .replace("）", ")")
+        .replace("，", "，")
+        .replace("；", "；")
+        .replace("：", "：")
+    )
+
+    return text_value
+
+
+def extract_pptx_shape_text(shape):
+    """递归提取 PPTX 文本框、表格、组合形状中的文字。"""
+    parts = []
+
+    try:
+        if hasattr(shape, "text"):
+            value = normalize_special_symbols((shape.text or "").strip())
+            if value:
+                parts.append(value)
+    except Exception:
+        pass
+
+    try:
+        if getattr(shape, "has_table", False):
+            for row in shape.table.rows:
+                cells = []
+                for cell in row.cells:
+                    value = normalize_special_symbols((cell.text or "").strip())
+                    if value:
+                        cells.append(value)
+                if cells:
+                    parts.append(" | ".join(cells))
+    except Exception:
+        pass
+
+    try:
+        if hasattr(shape, "shapes"):
+            for child in shape.shapes:
+                child_text = extract_pptx_shape_text(child)
+                if child_text:
+                    parts.append(child_text)
+    except Exception:
+        pass
+
+    return "\n".join(parts)
+
+
 def read_pdf_text(file_path: Path):
     """读取 PDF 文本。需要安装 pypdf。"""
     try:
@@ -1167,7 +1283,7 @@ def read_pdf_text(file_path: Path):
 
 
 def read_pptx_text(file_path: Path):
-    """读取 PPTX 文本。需要安装 python-pptx。"""
+    """读取 PPTX 文本。支持文本框、表格、组合形状、备注页。需要安装 python-pptx。"""
     try:
         from pptx import Presentation
     except Exception:
@@ -1181,10 +1297,17 @@ def read_pptx_text(file_path: Path):
             texts = []
 
             for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    value = (shape.text or "").strip()
-                    if value:
-                        texts.append(value)
+                value = extract_pptx_shape_text(shape)
+                if value:
+                    texts.append(value)
+
+            try:
+                notes = slide.notes_slide.notes_text_frame.text
+                notes = normalize_special_symbols((notes or "").strip())
+                if notes:
+                    texts.append("[备注]\n" + notes)
+            except Exception:
+                pass
 
             if texts:
                 slides.append(f"[第 {index} 页]\n" + "\n".join(texts))
@@ -1195,7 +1318,7 @@ def read_pptx_text(file_path: Path):
 
 
 def read_docx_text(file_path: Path):
-    """读取 DOCX 文本。需要安装 python-docx。"""
+    """读取 DOCX 文本，包含段落和表格。需要安装 python-docx。"""
     try:
         from docx import Document
     except Exception:
@@ -1206,9 +1329,22 @@ def read_docx_text(file_path: Path):
         parts = []
 
         for paragraph in document.paragraphs:
-            value = (paragraph.text or "").strip()
+            value = normalize_special_symbols((paragraph.text or "").strip())
             if value:
                 parts.append(value)
+
+        for table_index, table in enumerate(document.tables, start=1):
+            rows = []
+            for row in table.rows:
+                cells = []
+                for cell in row.cells:
+                    value = normalize_special_symbols((cell.text or "").strip())
+                    if value:
+                        cells.append(value)
+                if cells:
+                    rows.append(" | ".join(cells))
+            if rows:
+                parts.append(f"[表格 {table_index}]\n" + "\n".join(rows))
 
         return "\n".join(parts)
     except Exception:
@@ -1216,18 +1352,34 @@ def read_docx_text(file_path: Path):
 
 
 def normalize_ai_text(text: str, max_length: int = 1600):
-    """轻量文本清洗：用于无外部大模型时的演示版 AI 笔记生成。"""
+    """文本清洗：保留页码线索，统一常见特殊符号，去掉过多空白。"""
     if not text:
         return ""
 
+    cleaned = normalize_special_symbols(str(text))
     cleaned = (
-        str(text)
+        cleaned
         .replace("\r", "\n")
         .replace("\t", " ")
         .replace("\u3000", " ")
     )
-    lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
-    cleaned = "\n".join(lines)
+
+    lines = []
+    previous_blank = False
+
+    for raw_line in cleaned.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            if not previous_blank:
+                lines.append("")
+            previous_blank = True
+            continue
+
+        # 去掉明显重复的超短空白，但保留页码 / 章节标记
+        lines.append(line)
+        previous_blank = False
+
+    cleaned = "\n".join(lines).strip()
     return cleaned[:max_length]
 
 
@@ -1404,6 +1556,20 @@ def strip_markdown_fence(value: str):
     return text_value.strip()
 
 
+def post_process_ai_note(value: str):
+    """模型输出后处理：去代码块、统一符号、修正部分 Markdown 空格。"""
+    text_value = normalize_special_symbols(strip_markdown_fence(value))
+
+    # 避免模型把标题写成 ####标题，编辑器不易识别
+    import re
+    text_value = re.sub(r"^(#{1,4})([^#\s])", r"\1 \2", text_value, flags=re.MULTILINE)
+
+    # DeepSeek/Qwen 偶尔输出多余空行，保留段落但不要太散
+    text_value = re.sub(r"\n{4,}", "\n\n\n", text_value)
+
+    return text_value.strip()
+
+
 def call_text_agent_for_course_note(
     course_name: str,
     resource_name: str,
@@ -1425,7 +1591,7 @@ def call_text_agent_for_course_note(
             detail="未配置文本模型智能体。请设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
         )
 
-    clean_text = normalize_ai_text(resource_text, max_length=6000)
+    clean_text = normalize_ai_text(resource_text, max_length=20000)
 
     if len(clean_text) < 80:
         raise HTTPException(
@@ -1434,24 +1600,80 @@ def call_text_agent_for_course_note(
         )
 
     prompt = f"""
-你是 NoteWhale 的课程资料笔记智能体。
+你是 NoteWhale 的“课程资料精读与复习笔记智能体”。
 
-任务：根据用户上传的课程资料正文，生成一份可编辑的 Markdown 课程笔记。
-不要输出“Demo”，不要泛泛而谈，不要编造资料里没有的信息。
-如果资料中信息不足，请明确写“资料中未给出”。
+你的任务不是写大纲，而是把用户上传的课程资料加工成一份“可以直接复习、可以继续编辑、可以导出 PDF 的详细学习笔记”。
+你需要尽量还原资料中的知识点、章节关系和页序线索，并把零散内容转化为可理解的复习材料。
 
 课程：{course_name}
 资料：{resource_name}
 笔记类型：{note_style}
 
-输出要求：
-1. 只输出 Markdown 正文，不要包裹代码块。
-2. 保留资料中的章节、页码或页序线索，例如“第 1 页 / 第 2 页”。
-3. 必须包含“资料速读”“知识结构”“重点概念”“可回查索引”“复习问题”“待补充清单”。
-4. 尽量把课件内容整理成适合复习的层级结构。
-5. 如果资料是 PPT，每一页的重要信息要尽量保留，不要只写三四条空泛总结。
-6. 内容必须可直接进入编辑器继续修改，并可导出为 PDF。
-7. 控制篇幅，优先生成中期演示可读的精炼版笔记，不要输出超长全文复述。
+重要原则：
+- 不要写空泛套话，例如“本章主要介绍相关知识”。
+- 不要只列标题，不要只写三四条总结。
+- 不能编造资料中没有的信息；资料中确实没有的内容写“资料中未给出”。
+- 如果资料文本重复、断裂或像 PPT 短句，请主动补全逻辑衔接，但不要虚构新知识。
+- 特殊符号、公式、逻辑符号优先输出 Unicode，可直接显示：≤ ≥ ≠ ≈ → ⇒ ⇔ ∑ ∫ √ ∈ ∉ ∪ ∩ ∀ ∃ ∴ ∵。
+- 尽量避免复杂 LaTeX；如果必须写公式，用“公式 + 文字解释”的方式。
+
+请按以下结构输出 Markdown：
+
+# {course_name} · {resource_name} 详细复习笔记
+
+## 1. 资料速读
+写 5-8 条，说明资料类型、主题、范围、页码/章节线索、适合怎么复习。
+
+## 2. 知识地图
+用层级列表整理资料的知识结构。不是目录复刻，而是说明“概念之间的关系”。
+
+## 3. 逐章 / 逐页精读
+这是最重要的部分。
+请按资料页码、章节或主题分成多个小节。每个小节都要包含：
+- **本节讲什么**：用完整句子解释，不要只写关键词。
+- **关键概念**：列出概念并解释含义。
+- **逻辑关系**：说明概念之间如何连接，例如因果、分类、条件、推导、对比。
+- **课堂可考点**：指出可能用于选择题、简答题、论述题或课堂讨论的点。
+- **复习提醒**：指出容易忽略、容易混淆或需要回看原资料的地方。
+
+## 4. 重点概念详解
+选择资料中最重要的 8-15 个概念。
+每个概念使用这个格式：
+### 概念名
+- **含义**：
+- **为什么重要**：
+- **与其他概念的关系**：
+- **容易混淆点**：
+- **一句话记忆**：
+
+## 5. 易混淆点对比
+用表格整理至少 4 组容易混淆的概念。如果资料中不足 4 组，请按资料实际内容输出。
+
+表格列：
+| 概念 A | 概念 B | 主要区别 | 判断方法 | 复习提示 |
+
+## 6. 可回查索引
+按页码、章节或资料线索写索引，方便用户回到原 PPT/PDF 查找。
+格式示例：
+- 第 1-3 页：……
+- 第 4-8 页：……
+
+## 7. 自测题
+生成 10-15 道复习题，包含：
+- 选择 / 判断倾向的问题
+- 简答题
+- 论述题
+- 对比分析题
+
+每道题后给出“答题要点”，不要只给题目。
+
+## 8. 待补充清单
+列出资料中不完整、需要老师课堂补充或需要教材查证的内容。
+
+篇幅要求：
+- 如果资料正文足够多，请输出 3000-5000 字。
+- 如果资料正文较少，也要充分展开已有信息，但不要编造。
+- “逐章 / 逐页精读”和“重点概念详解”必须是正文主体，不能只有大纲。
 
 资料正文如下：
 {clean_text}
@@ -1462,14 +1684,15 @@ def call_text_agent_for_course_note(
         "messages": [
             {
                 "role": "system",
-                "content": "你是一个课程资料总结与复习笔记生成智能体，擅长把 PDF/PPT/Word 资料整理为可编辑 Markdown 笔记。",
+                "content": "你是一个严谨的课程资料精读、知识讲解与复习笔记生成智能体。你擅长把 PPT/PDF/Word 资料整理成详细、可复习、可编辑的 Markdown 笔记，而不是简单大纲。",
             },
             {
                 "role": "user",
                 "content": prompt,
             },
         ],
-        "temperature": 0.25,
+        "temperature": 0.35,
+        "max_tokens": 6000,
     }
 
     request = urllib.request.Request(
@@ -1504,7 +1727,7 @@ def call_text_agent_for_course_note(
     except Exception:
         raise HTTPException(status_code=502, detail="文本模型返回格式异常，未找到 message.content。")
 
-    return strip_markdown_fence(content)
+    return post_process_ai_note(content)
 
 
 
@@ -1538,7 +1761,9 @@ def generate_note(
             .first()
         )
 
-    resource_text = normalize_ai_text(payload.rawText, max_length=6000) or try_read_resource_text(resource)
+    file_resource_text = try_read_resource_text(resource)
+    raw_resource_text = normalize_ai_text(payload.rawText, max_length=24000)
+    resource_text = file_resource_text or raw_resource_text
     resource_name = resource.name if resource else payload.resourceName
     course_name = payload.courseName or "课程"
 
