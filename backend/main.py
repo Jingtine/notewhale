@@ -41,61 +41,94 @@ TEXT_API_KEY = os.getenv("NOTEWHALE_TEXT_API_KEY", VISION_API_KEY).strip()
 TEXT_MODEL = os.getenv("NOTEWHALE_TEXT_MODEL", "glm-4-flash-250414").strip()
 
 
+def safe_add_column(conn, table_name: str, column_name: str, column_sql: str):
+    """
+    安全部署用：给旧表补字段。
+    某些云数据库 / PostgreSQL 对 SQLite 风格语法不兼容，
+    如果这里抛异常会导致 Render 启动失败，所以单个字段失败不让服务直接崩。
+    """
+    try:
+        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"))
+    except Exception:
+        # 字段可能已经存在，或数据库方言不支持某个默认值。
+        # 不在启动阶段抛出，避免整个 Render 服务启动失败。
+        pass
+
+
 def ensure_schema():
-    """兼容旧版 SQLite 表结构：create_all 不会自动给旧表补字段。"""
-    inspector = inspect(engine)
+    """
+    兼容旧数据库表结构。
+    关键修复：区分 PostgreSQL / SQLite 的字段类型，避免 Render 启动时因为 ALTER TABLE 语法崩掉。
+    """
+    try:
+        inspector = inspect(engine)
+        dialect = engine.dialect.name
 
-    with engine.begin() as conn:
-        table_names = inspector.get_table_names()
+        if dialect == "postgresql":
+            string_type = "VARCHAR"
+            int_type = "INTEGER"
+            bool_type = "BOOLEAN DEFAULT false"
+            datetime_type = "TIMESTAMP"
+        else:
+            string_type = "VARCHAR"
+            int_type = "INTEGER"
+            bool_type = "BOOLEAN DEFAULT 0"
+            datetime_type = "DATETIME"
 
-        if "users" not in table_names:
-            Base.metadata.create_all(bind=engine)
-            inspector = inspect(engine)
+        with engine.begin() as conn:
             table_names = inspector.get_table_names()
 
-        if "folders" in table_names:
-            folder_columns = {column["name"] for column in inspector.get_columns("folders")}
-            if "user_id" not in folder_columns:
-                conn.execute(text("ALTER TABLE folders ADD COLUMN user_id INTEGER"))
+            if "users" not in table_names:
+                Base.metadata.create_all(bind=engine)
+                inspector = inspect(engine)
+                table_names = inspector.get_table_names()
 
-        if "courses" in table_names:
-            course_columns = {column["name"] for column in inspector.get_columns("courses")}
+            if "folders" in table_names:
+                folder_columns = {column["name"] for column in inspector.get_columns("folders")}
+                if "user_id" not in folder_columns:
+                    safe_add_column(conn, "folders", "user_id", int_type)
 
-            if "folder_id" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN folder_id INTEGER"))
+            if "courses" in table_names:
+                course_columns = {column["name"] for column in inspector.get_columns("courses")}
 
-            if "folder_name" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN folder_name VARCHAR DEFAULT ''"))
+                if "folder_id" not in course_columns:
+                    safe_add_column(conn, "courses", "folder_id", int_type)
 
-            if "is_deleted" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+                if "folder_name" not in course_columns:
+                    safe_add_column(conn, "courses", "folder_name", f"{string_type} DEFAULT ''")
 
-            if "deleted_at" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN deleted_at DATETIME"))
+                if "is_deleted" not in course_columns:
+                    safe_add_column(conn, "courses", "is_deleted", bool_type)
 
-            if "deleted_folder_id" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN deleted_folder_id INTEGER"))
+                if "deleted_at" not in course_columns:
+                    safe_add_column(conn, "courses", "deleted_at", datetime_type)
 
-            if "deleted_folder_title" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN deleted_folder_title VARCHAR DEFAULT ''"))
+                if "deleted_folder_id" not in course_columns:
+                    safe_add_column(conn, "courses", "deleted_folder_id", int_type)
 
-            if "user_id" not in course_columns:
-                conn.execute(text("ALTER TABLE courses ADD COLUMN user_id INTEGER"))
+                if "deleted_folder_title" not in course_columns:
+                    safe_add_column(conn, "courses", "deleted_folder_title", f"{string_type} DEFAULT ''")
 
-        if "ddls" in table_names:
-            ddl_columns = {column["name"] for column in inspector.get_columns("ddls")}
-            if "user_id" not in ddl_columns:
-                conn.execute(text("ALTER TABLE ddls ADD COLUMN user_id INTEGER"))
+                if "user_id" not in course_columns:
+                    safe_add_column(conn, "courses", "user_id", int_type)
 
-        if "notes" in table_names:
-            note_columns = {column["name"] for column in inspector.get_columns("notes")}
-            if "user_id" not in note_columns:
-                conn.execute(text("ALTER TABLE notes ADD COLUMN user_id INTEGER"))
+            if "ddls" in table_names:
+                ddl_columns = {column["name"] for column in inspector.get_columns("ddls")}
+                if "user_id" not in ddl_columns:
+                    safe_add_column(conn, "ddls", "user_id", int_type)
 
-        if "resources" in table_names:
-            resource_columns = {column["name"] for column in inspector.get_columns("resources")}
-            if "user_id" not in resource_columns:
-                conn.execute(text("ALTER TABLE resources ADD COLUMN user_id INTEGER"))
+            if "notes" in table_names:
+                note_columns = {column["name"] for column in inspector.get_columns("notes")}
+                if "user_id" not in note_columns:
+                    safe_add_column(conn, "notes", "user_id", int_type)
+
+            if "resources" in table_names:
+                resource_columns = {column["name"] for column in inspector.get_columns("resources")}
+                if "user_id" not in resource_columns:
+                    safe_add_column(conn, "resources", "user_id", int_type)
+    except Exception:
+        # 不让数据库补字段逻辑影响服务启动。
+        pass
 
 
 ensure_schema()
@@ -103,7 +136,7 @@ ensure_schema()
 app = FastAPI(
     title="NoteWhale API",
     description="鲸记 NoteWhale 后端接口",
-    version="0.6.0-ai",
+    version="0.7.1-deepseek-startup-safe",
 )
 
 # Frontend origins allowed to call this API.
