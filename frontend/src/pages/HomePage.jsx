@@ -111,6 +111,10 @@ function HomePage({ user = null, onLogout } = {}) {
   const [folders, setFolders] =
     useState(() => readUserStorageArray(user, "folders", []));
 
+  const [deletedFolderIds, setDeletedFolderIds] = useState(() =>
+    readUserStorageArray(user, "deletedFolderIds", [])
+  );
+
   const [ddls, setDdls] = useState(() =>
     readUserStorageArray(user, "ddls", [])
   );
@@ -843,20 +847,30 @@ function HomePage({ user = null, onLogout } = {}) {
       backendFolderId: folderToDelete.backendId || course.backendFolderId || null,
     }));
 
+    const backendFolderId = folderToDelete.backendId
+      ? String(folderToDelete.backendId)
+      : null;
+
     let nextBackendMessage = "文件夹已删除";
 
-    if (folderToDelete.backendSynced && folderToDelete.backendId) {
+    if (folderToDelete.backendSynced && backendFolderId) {
       try {
-        await deleteBackendFolder(folderToDelete.backendId, {
+        await deleteBackendFolder(backendFolderId, {
           deleteCourses: true,
         });
 
         nextBackendMessage = "文件夹已从云端删除，课程已进入回收站";
       } catch (error) {
-        console.warn("Folder cloud delete failed. The UI will remove it locally first.", error);
+        console.warn("Folder cloud delete failed. Keep a local tombstone first.", error);
+
+        setDeletedFolderIds((prevIds) => {
+          const nextIds = Array.from(new Set([...prevIds, backendFolderId]));
+          writeUserStorageArray(user, "deletedFolderIds", nextIds);
+          return nextIds;
+        });
 
         nextBackendMessage =
-          "云端删除暂未同步，已先从当前页面移除。稍后刷新后如仍出现，可再次删除。";
+          "云端删除暂未同步，已先从当前页面移除。刷新后不会在本机恢复。";
       }
     }
 
@@ -883,6 +897,10 @@ function HomePage({ user = null, onLogout } = {}) {
 
     useEffect(() => {
       writeUserStorageArray(user, "folders", folders);}, [folders, user]);
+
+    useEffect(() => {
+      writeUserStorageArray(user, "deletedFolderIds", deletedFolderIds);
+    }, [deletedFolderIds, user]);
 
     useEffect(() => {writeUserStorageArray(user, "ddls", ddls);}, [ddls, user]);
 
@@ -940,8 +958,18 @@ function HomePage({ user = null, onLogout } = {}) {
         const data = await getBackendFolders();
         if (!alive) return;
 
+        const hiddenBackendFolderIds = new Set(
+          deletedFolderIds.map((id) => String(id))
+        );
+
         const nextFolders = Array.isArray(data)
-          ? data.map(mapBackendFolder)
+          ? data
+              .map(mapBackendFolder)
+              .filter(
+                (folder) =>
+                  !folder.backendId ||
+                  !hiddenBackendFolderIds.has(String(folder.backendId))
+              )
           : [];
 
         const backendCourseCount = nextFolders.reduce(
@@ -970,7 +998,7 @@ function HomePage({ user = null, onLogout } = {}) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [deletedFolderIds]);
 
 
 
@@ -1075,6 +1103,30 @@ function HomePage({ user = null, onLogout } = {}) {
 
   let visibleFolders = searchText ? searchedFolders : folders;
 
+  function getCourseNoteCount(course) {
+    return allNotesForSearch.filter((note) => {
+      return (
+        String(note.courseId || "") === String(course.id) ||
+        String(note.courseId || "") === String(course.backendId || "") ||
+        String(note.backendCourseId || "") === String(course.backendId || "") ||
+        String(note.courseName || "") === String(course.title || "")
+      );
+    }).length;
+  }
+
+  function getCourseDdlCount(course) {
+    return ddls.filter((ddl) => {
+      if (ddl.completed) return false;
+
+      return (
+        String(ddl.courseId || "") === String(course.id) ||
+        String(ddl.courseId || "") === String(course.backendId || "") ||
+        String(ddl.backendCourseId || "") === String(course.backendId || "") ||
+        String(ddl.courseName || "") === String(course.title || "")
+      );
+    }).length;
+  }
+
   if (selectedFolder === "全部课程") {
     visibleFolders = [
       {
@@ -1123,6 +1175,15 @@ function HomePage({ user = null, onLogout } = {}) {
           .filter((folder) => folder.courses.length > 0)
       : folderResult;
   }
+
+  const visibleFoldersWithStats = visibleFolders.map((folder) => ({
+    ...folder,
+    courses: (folder.courses || []).map((course) => ({
+      ...course,
+      noteCount: getCourseNoteCount(course),
+      ddlCount: getCourseDdlCount(course),
+    })),
+  }));
 
   return (
     <div
@@ -1290,7 +1351,7 @@ function HomePage({ user = null, onLogout } = {}) {
               </div>
             </div>
 
-            {visibleFolders.length === 0 ? (
+            {visibleFoldersWithStats.length === 0 ? (
               <div
                 style={{
                   height: "160px",
@@ -1310,7 +1371,7 @@ function HomePage({ user = null, onLogout } = {}) {
                 没有找到相关课程
               </div>
             ) : (
-              visibleFolders.map((folder) => (
+              visibleFoldersWithStats.map((folder) => (
                 <FolderSection
                   key={folder.id}
                   folderId={folder.id}

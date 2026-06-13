@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 function CourseCard({
   id,
@@ -17,40 +17,8 @@ function CourseCard({
 }) {
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
-  const [realStats, setRealStats] = useState({
-    notes: noteCount ?? 0,
-    ddls: ddlCount ?? 0,
-  });
-
-  useEffect(() => {
-    function refreshStats() {
-      const notes = safeParse("notes");
-      const ddls = safeParse("ddls");
-
-      const realNoteCount = notes.filter(
-        (note) => String(note.courseId) === String(id)
-      ).length;
-
-      const realDDLCount = ddls.filter(
-        (ddl) => String(ddl.courseId) === String(id) && !ddl.completed
-      ).length;
-
-      setRealStats({
-        notes: realNoteCount,
-        ddls: realDDLCount,
-      });
-    }
-
-    refreshStats();
-
-    window.addEventListener("focus", refreshStats);
-    window.addEventListener("storage", refreshStats);
-
-    return () => {
-      window.removeEventListener("focus", refreshStats);
-      window.removeEventListener("storage", refreshStats);
-    };
-  }, [id, noteCount, ddlCount]);
+  const displayNoteCount = Number(noteCount || 0);
+  const displayDdlCount = Number(ddlCount || 0);
 
   function handleOpenCourse(e) {
     if (isTrash) return;
@@ -255,7 +223,7 @@ function CourseCard({
             fontWeight: 500,
           }}
         >
-          笔记 {realStats.notes}
+          笔记 {displayNoteCount}
         </div>
 
         <div
@@ -268,7 +236,7 @@ function CourseCard({
             fontWeight: 500,
           }}
         >
-          DDL {realStats.ddls}
+          DDL {displayDdlCount}
         </div>
       </div>
 
@@ -321,14 +289,6 @@ function CourseCard({
       )}
     </div>
   );
-}
-
-function safeParse(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || "[]");
-  } catch {
-    return [];
-  }
 }
 
 export default CourseCard;
