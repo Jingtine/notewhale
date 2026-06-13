@@ -7,6 +7,7 @@ function CourseCard({
   starred,
   noteCount,
   ddlCount,
+  resourceCount,
   onStar,
   onDelete,
   onRestore,
@@ -19,6 +20,7 @@ function CourseCard({
   const [showMenu, setShowMenu] = useState(false);
   const displayNoteCount = Number(noteCount || 0);
   const displayDdlCount = Number(ddlCount || 0);
+  const displayResourceCount = Number(resourceCount || 0);
 
   function handleOpenCourse(e) {
     if (isTrash) return;
@@ -237,6 +239,19 @@ function CourseCard({
           }}
         >
           DDL {displayDdlCount}
+        </div>
+
+        <div
+          style={{
+            background: theme.softBg,
+            borderRadius: "999px",
+            padding: "6px 12px",
+            color: theme.text,
+            fontSize: "12px",
+            fontWeight: 500,
+          }}
+        >
+          资料 {displayResourceCount}
         </div>
       </div>
 

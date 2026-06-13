@@ -24,6 +24,8 @@ import {
   createDdl as createBackendDdl,
   recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
+import { getNotes as getBackendNotes } from "../api/noteApi";
+import { getResources as getBackendResources } from "../api/resourceApi";
 import { getApiBaseUrl } from "../api/apiClient";
 
 function getUserStorageKey(user, key) {
@@ -118,6 +120,9 @@ function HomePage({ user = null, onLogout } = {}) {
   const [ddls, setDdls] = useState(() =>
     readUserStorageArray(user, "ddls", [])
   );
+
+  const [backendNotesForHome, setBackendNotesForHome] = useState([]);
+  const [backendResourcesForHome, setBackendResourcesForHome] = useState([]);
 
   async function addFolder() {
     const title = newFolderName.trim();
@@ -1065,6 +1070,40 @@ function HomePage({ user = null, onLogout } = {}) {
 
 
 
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendNotesAndResources() {
+      try {
+        const [noteData, resourceData] = await Promise.all([
+          getBackendNotes(),
+          getBackendResources(),
+        ]);
+
+        if (!alive) return;
+
+        setBackendNotesForHome(
+          Array.isArray(noteData) ? noteData.map(mapBackendNoteForHome) : []
+        );
+        setBackendResourcesForHome(
+          Array.isArray(resourceData)
+            ? resourceData.map(mapBackendResourceForHome)
+            : []
+        );
+      } catch {
+        if (!alive) return;
+        setBackendNotesForHome([]);
+        setBackendResourcesForHome([]);
+      }
+    }
+
+    loadBackendNotesAndResources();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const allCourses = folders.flatMap((folder) => folder.courses);
 
   const searchedFolders = folders
@@ -1082,8 +1121,18 @@ function HomePage({ user = null, onLogout } = {}) {
 
   const starredCourses = searchedAllCourses.filter((course) => course.starred);
 
-  const allNotesForSearch = readUserStorageArray(user, "notes", []);
-  const allResourcesForSearch = readUserStorageArray(user, "resources", []);
+  const localNotesForSearch = readUserStorageArray(user, "notes", []);
+  const localResourcesForSearch = readUserStorageArray(user, "resources", []);
+
+  const allNotesForSearch = [
+    ...localNotesForSearch,
+    ...backendNotesForHome,
+  ];
+
+  const allResourcesForSearch = [
+    ...localResourcesForSearch,
+    ...backendResourcesForHome,
+  ];
   const noteCount = allNotesForSearch.length;
   const resourceCount = allResourcesForSearch.length;
 
@@ -1123,6 +1172,17 @@ function HomePage({ user = null, onLogout } = {}) {
         String(ddl.courseId || "") === String(course.backendId || "") ||
         String(ddl.backendCourseId || "") === String(course.backendId || "") ||
         String(ddl.courseName || "") === String(course.title || "")
+      );
+    }).length;
+  }
+
+  function getCourseResourceCount(course) {
+    return allResourcesForSearch.filter((resource) => {
+      return (
+        String(resource.courseId || "") === String(course.id) ||
+        String(resource.courseId || "") === String(course.backendId || "") ||
+        String(resource.backendCourseId || "") === String(course.backendId || "") ||
+        String(resource.courseName || "") === String(course.title || "")
       );
     }).length;
   }
@@ -1182,6 +1242,7 @@ function HomePage({ user = null, onLogout } = {}) {
       ...course,
       noteCount: getCourseNoteCount(course),
       ddlCount: getCourseDdlCount(course),
+      resourceCount: getCourseResourceCount(course),
     })),
   }));
 
@@ -1815,6 +1876,39 @@ function placeRestoredBackendCourse(folders = [], course, fallbackFolderTitle = 
   }
 
   return nextFolders;
+}
+
+function mapBackendNoteForHome(note) {
+  return {
+    id: `api-note-${note.id}`,
+    backendId: note.id,
+    title: note.title || "未命名笔记",
+    content: note.content || "",
+    courseId: note.courseId ? `api-${note.courseId}` : null,
+    backendCourseId: note.courseId || null,
+    courseName: note.courseName || "",
+    source: note.source || "笔记",
+    aiGenerated: Boolean(note.aiGenerated),
+    backendSynced: true,
+    createdAt: note.createdAt || Date.now(),
+    updatedAt: note.updatedAt || note.createdAt || Date.now(),
+  };
+}
+
+function mapBackendResourceForHome(resource) {
+  return {
+    id: `api-resource-${resource.id}`,
+    backendId: resource.id,
+    title: resource.title || resource.filename || resource.name || "课程资料",
+    name: resource.filename || resource.title || resource.name || "课程资料",
+    filename: resource.filename || resource.title || resource.name || "课程资料",
+    courseId: resource.courseId ? `api-${resource.courseId}` : null,
+    backendCourseId: resource.courseId || null,
+    courseName: resource.courseName || "",
+    filePath: resource.filePath || "",
+    backendSynced: true,
+    createdAt: resource.createdAt || Date.now(),
+  };
 }
 
 function mapBackendDdl(ddl) {
