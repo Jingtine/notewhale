@@ -843,22 +843,30 @@ function HomePage({ user = null, onLogout } = {}) {
       backendFolderId: folderToDelete.backendId || course.backendFolderId || null,
     }));
 
+    let nextBackendMessage = "文件夹已删除";
+
     if (folderToDelete.backendSynced && folderToDelete.backendId) {
       try {
         await deleteBackendFolder(folderToDelete.backendId, {
           deleteCourses: true,
         });
-        setBackendCourseMessage("文件夹已从后端删除，课程已进入本地回收站");
+
+        nextBackendMessage = "文件夹已从云端删除，课程已进入回收站";
       } catch (error) {
-        alert(error.message || "后端文件夹删除失败");
-        return;
+        console.warn("Folder cloud delete failed. The UI will remove it locally first.", error);
+
+        nextBackendMessage =
+          "云端删除暂未同步，已先从当前页面移除。稍后刷新后如仍出现，可再次删除。";
       }
     }
 
-    setDeletedCourses([...deletedCourses, ...deletedFromFolder]);
+    setDeletedCourses((prevDeletedCourses) => [
+      ...prevDeletedCourses,
+      ...deletedFromFolder,
+    ]);
 
-    setFolders(
-      folders.filter(
+    setFolders((prevFolders) =>
+      prevFolders.filter(
         (folder) => String(folder.id) !== String(pendingDeleteFolderId)
       )
     );
@@ -867,6 +875,7 @@ function HomePage({ user = null, onLogout } = {}) {
       setSelectedFolder("全部");
     }
 
+    setBackendCourseMessage(nextBackendMessage);
     setPendingDeleteFolderId(null);
     setShowFolderDeleteConfirm(false);
   }
