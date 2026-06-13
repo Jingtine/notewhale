@@ -9,6 +9,8 @@ import mimetypes
 import os
 import secrets
 import urllib.request
+import zipfile
+import xml.etree.ElementTree as ET
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -1145,8 +1147,42 @@ def read_plain_text_file(file_path: Path):
             return ""
 
 
+def xml_text_from_zip(zip_file: zipfile.ZipFile, names):
+    """从 Office Open XML 文件里直接抽取文字，不依赖 python-docx / python-pptx。"""
+    parts = []
+
+    for name in names:
+        try:
+            xml_data = zip_file.read(name)
+        except Exception:
+            continue
+
+        try:
+            root = ET.fromstring(xml_data)
+        except Exception:
+            continue
+
+        texts = []
+        for node in root.iter():
+            tag = node.tag.split("}")[-1]
+            if tag in {"t", "instrText"} and node.text:
+                value = node.text.strip()
+                if value:
+                    texts.append(value)
+            elif tag in {"tab"}:
+                texts.append(" ")
+            elif tag in {"br", "p"}:
+                texts.append("\n")
+
+        page_text = "".join(texts).strip()
+        if page_text:
+            parts.append(page_text)
+
+    return "\n\n".join(parts)
+
+
 def read_pdf_text(file_path: Path):
-    """读取 PDF 文本。需要安装 pypdf。"""
+    """读取 PDF 文本。优先 pypdf；如果没装会返回空字符串。"""
     try:
         from pypdf import PdfReader
     except Exception:
@@ -1167,13 +1203,13 @@ def read_pdf_text(file_path: Path):
 
 
 def read_pptx_text(file_path: Path):
-    """读取 PPTX 文本。需要安装 python-pptx。"""
+    """
+    读取 PPTX 文本。
+    先用 python-pptx；如果 Render 没装依赖，自动用 zip+xml 标准库兜底。
+    """
     try:
         from pptx import Presentation
-    except Exception:
-        return ""
 
-    try:
         prs = Presentation(str(file_path))
         slides = []
 
@@ -1186,22 +1222,71 @@ def read_pptx_text(file_path: Path):
                     if value:
                         texts.append(value)
 
+                if getattr(shape, "has_table", False):
+                    try:
+                        for row in shape.table.rows:
+                            row_values = []
+                            for cell in row.cells:
+                                cell_text = (cell.text or "").strip()
+                                if cell_text:
+                                    row_values.append(cell_text)
+                            if row_values:
+                                texts.append(" | ".join(row_values))
+                    except Exception:
+                        pass
+
+            try:
+                if slide.has_notes_slide:
+                    notes_text = (slide.notes_slide.notes_text_frame.text or "").strip()
+                    if notes_text:
+                        texts.append("[备注]\n" + notes_text)
+            except Exception:
+                pass
+
             if texts:
                 slides.append(f"[第 {index} 页]\n" + "\n".join(texts))
 
-        return "\n\n".join(slides)
+        pptx_text = "\n\n".join(slides)
+        if len(pptx_text.strip()) >= 40:
+            return pptx_text
+    except Exception:
+        pass
+
+    # 标准库兜底：PPTX 本质是 zip，文字在 ppt/slides/slide*.xml 中。
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            slide_names = sorted(
+                [name for name in z.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")],
+                key=lambda value: int("".join(ch for ch in Path(value).stem if ch.isdigit()) or "0"),
+            )
+            notes_names = sorted(
+                [name for name in z.namelist() if name.startswith("ppt/notesSlides/notesSlide") and name.endswith(".xml")],
+                key=lambda value: int("".join(ch for ch in Path(value).stem if ch.isdigit()) or "0"),
+            )
+
+            slides = []
+            for index, name in enumerate(slide_names, start=1):
+                text_value = xml_text_from_zip(z, [name])
+                note_value = xml_text_from_zip(z, [notes_names[index - 1]]) if index - 1 < len(notes_names) else ""
+                combined = text_value
+                if note_value:
+                    combined = (combined + "\n[备注]\n" + note_value).strip()
+                if combined:
+                    slides.append(f"[第 {index} 页]\n{combined}")
+
+            return "\n\n".join(slides)
     except Exception:
         return ""
 
 
 def read_docx_text(file_path: Path):
-    """读取 DOCX 文本。需要安装 python-docx。"""
+    """
+    读取 DOCX 文本。
+    先用 python-docx；如果 Render 没装依赖，自动用 zip+xml 标准库兜底。
+    """
     try:
         from docx import Document
-    except Exception:
-        return ""
 
-    try:
         document = Document(str(file_path))
         parts = []
 
@@ -1210,7 +1295,35 @@ def read_docx_text(file_path: Path):
             if value:
                 parts.append(value)
 
-        return "\n".join(parts)
+        for table in document.tables:
+            for row in table.rows:
+                row_values = []
+                for cell in row.cells:
+                    cell_text = (cell.text or "").strip()
+                    if cell_text:
+                        row_values.append(cell_text)
+                if row_values:
+                    parts.append(" | ".join(row_values))
+
+        docx_text = "\n".join(parts)
+        if len(docx_text.strip()) >= 40:
+            return docx_text
+    except Exception:
+        pass
+
+    # 标准库兜底：DOCX 本质是 zip，文字在 word/document.xml 中。
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            names = ["word/document.xml"]
+            names.extend(
+                name for name in z.namelist()
+                if name.startswith("word/header") and name.endswith(".xml")
+            )
+            names.extend(
+                name for name in z.namelist()
+                if name.startswith("word/footer") and name.endswith(".xml")
+            )
+            return xml_text_from_zip(z, names)
     except Exception:
         return ""
 
@@ -1430,7 +1543,12 @@ def call_text_agent_for_course_note(
     if len(clean_text) < 80:
         raise HTTPException(
             status_code=422,
-            detail="没有读取到足够的资料正文。请确认已安装 pypdf / python-pptx / python-docx，或上传可复制文字的资料。",
+            detail=(
+                "没有读取到足够的资料正文。"
+                "请先点资料右侧“查看”确认文件能打开；"
+                "如果是旧资料记录，Render 重新部署后原文件可能已丢失，需要删除后重新上传。"
+                "若 Word/PPT 仍失败，请确认上传的是 .docx / .pptx，不是 .doc / .ppt。"
+            ),
         )
 
     prompt = f"""
