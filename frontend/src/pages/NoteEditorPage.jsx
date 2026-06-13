@@ -484,14 +484,17 @@ function PreviewPanel({ colors, content, previewRef, compact = false }) {
       style={{
         width: "100%",
         height: "100%",
+        maxHeight: "100%",
         minHeight: 0,
         overflowY: "auto",
         overflowX: "hidden",
+        overscrollBehavior: "contain",
+        WebkitOverflowScrolling: "touch",
         border: `1px solid ${colors.border}`,
         borderRadius: 12,
         background: colors.paper,
         color: colors.title,
-        padding: compact ? "22px 24px" : "34px 40px 72px",
+        padding: compact ? "22px 24px 84px" : "34px 40px 120px",
         boxSizing: "border-box",
         lineHeight: 1.9,
         fontSize: 16,
@@ -937,9 +940,12 @@ function sidebarStyle(colors, darkMode) {
 
 function editorShellStyle(colors) {
   return {
+    height: "100%",
+    minHeight: 0,
+    minWidth: 0,
+    overflow: "hidden",
     display: "grid",
     gridTemplateRows: "64px minmax(0,1fr) 44px",
-    minWidth: 0,
     background: colors.card,
   };
 }
@@ -1026,8 +1032,10 @@ function sidebarDateStyle(colors) {
 
 const splitStyle = {
   minHeight: 0,
+  height: "100%",
+  overflow: "hidden",
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
   gap: 14,
 };
 
