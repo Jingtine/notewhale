@@ -306,4 +306,4 @@ function CourseCard({
   );
 }
 
-export default CourseCard; 
+export default CourseCard;
