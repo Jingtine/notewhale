@@ -1266,24 +1266,46 @@ def extract_pptx_shape_text(shape):
 
 
 def read_pdf_text(file_path: Path):
-    """读取 PDF 文本。需要安装 pypdf。"""
+    """
+    读取 PDF 文本。
+    先用 pypdf；如果提取不到，再用 PyMuPDF(fitz) 兜底。
+    注意：扫描版 / 图片版 PDF 仍然需要 OCR，这里只能处理可复制文字型 PDF。
+    """
+    texts = []
+
     try:
         from pypdf import PdfReader
+
+        reader = PdfReader(str(file_path))
+        for index, page in enumerate(reader.pages, start=1):
+            page_text = normalize_special_symbols(page.extract_text() or "")
+            if page_text.strip():
+                texts.append(f"[第 {index} 页]\n{page_text.strip()}")
     except Exception:
-        return ""
+        pass
+
+    pypdf_text = "\n\n".join(texts).strip()
+    if len(pypdf_text) >= 120:
+        return pypdf_text
 
     try:
-        reader = PdfReader(str(file_path))
-        parts = []
+        import fitz
 
-        for index, page in enumerate(reader.pages, start=1):
-            page_text = (page.extract_text() or "").strip()
-            if page_text:
-                parts.append(f"[第 {index} 页]\n{page_text}")
+        fitz_texts = []
+        doc = fitz.open(str(file_path))
+        for index, page in enumerate(doc, start=1):
+            page_text = normalize_special_symbols(page.get_text("text") or "")
+            if page_text.strip():
+                fitz_texts.append(f"[第 {index} 页]\n{page_text.strip()}")
+        doc.close()
 
-        return "\n\n".join(parts)
+        fitz_text = "\n\n".join(fitz_texts).strip()
+        if len(fitz_text) > len(pypdf_text):
+            return fitz_text
     except Exception:
-        return ""
+        pass
+
+    return pypdf_text
 
 
 def read_pptx_text(file_path: Path):
@@ -1432,6 +1454,37 @@ def try_read_resource_text(resource: Optional[Resource]):
 
     file_text = normalize_ai_text(try_read_file_text(file_path), max_length=50000)
     return file_text or stored_text
+
+
+def get_resource_text_debug(resource: Optional[Resource]):
+    if not resource:
+        return {
+            "resourceFound": False,
+            "reason": "数据库中没有找到该资料记录",
+        }
+
+    extracted_text = getattr(resource, "extracted_text", "") or ""
+
+    try:
+        file_path = Path(resource.file_path)
+        file_exists = file_path.exists()
+        file_size = file_path.stat().st_size if file_exists else 0
+        suffix = file_path.suffix.lower()
+    except Exception:
+        file_exists = False
+        file_size = 0
+        suffix = ""
+
+    return {
+        "resourceFound": True,
+        "resourceId": resource.id,
+        "resourceName": resource.name,
+        "suffix": suffix,
+        "filePath": getattr(resource, "file_path", ""),
+        "fileExists": file_exists,
+        "fileSize": file_size,
+        "storedTextLength": len(extracted_text),
+    }
 
 
 def infer_ai_keywords(course_name: str, resource_name: str, raw_text: str = ""):
@@ -1619,9 +1672,15 @@ def call_text_agent_for_course_note(
     clean_text = normalize_ai_text(resource_text, max_length=20000)
 
     if len(clean_text) < 80:
+        debug_info = get_resource_text_debug(resource)
         raise HTTPException(
             status_code=422,
-            detail="没有读取到足够的资料正文。请确认已安装 pypdf / python-pptx / python-docx，或上传可复制文字的资料。",
+            detail=(
+                "没有读取到足够的资料正文。"
+                "如果 fileExists=false，说明 Render 重新部署后 uploads 临时文件已丢失，需要重新上传资料；"
+                "如果 fileExists=true 但 storedTextLength=0，说明该资料可能是扫描版/图片版，或后端缺少解析依赖。"
+                f" 调试信息：{debug_info}"
+            ),
         )
 
     prompt = f"""
