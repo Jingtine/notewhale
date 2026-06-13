@@ -27,7 +27,10 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as startup_error:
+    print(f"[NoteWhale startup] create_all skipped: {startup_error}")
 
 SECRET_KEY = os.getenv("NOTEWHALE_SECRET_KEY", "notewhale-local-dev-secret-change-before-deploy")
 TOKEN_EXPIRE_DAYS = int(os.getenv("NOTEWHALE_TOKEN_EXPIRE_DAYS", "14"))
@@ -79,7 +82,10 @@ def ensure_schema():
             table_names = inspector.get_table_names()
 
             if "users" not in table_names:
-                Base.metadata.create_all(bind=engine)
+                try:
+                    Base.metadata.create_all(bind=engine)
+                except Exception as startup_error:
+                    print(f"[NoteWhale startup] create_all in ensure_schema skipped: {startup_error}")
                 inspector = inspect(engine)
                 table_names = inspector.get_table_names()
 
@@ -136,7 +142,7 @@ ensure_schema()
 app = FastAPI(
     title="NoteWhale API",
     description="鲸记 NoteWhale 后端接口",
-    version="0.7.1-deepseek-startup-safe",
+    version="0.7.2-deepseek-render-safe",
 )
 
 # Frontend origins allowed to call this API.
@@ -541,7 +547,7 @@ def health():
     return {
         "status": "ok",
         "service": "notewhale-backend",
-        "version": "0.7.0-deepseek-stable",
+        "version": "0.7.2-deepseek-render-safe",
     }
 
 
