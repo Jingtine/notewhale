@@ -693,6 +693,44 @@ def delete_folder(
     return {"ok": True, "deletedFolderId": folder_id, "deleteCourses": deleteCourses}
 
 
+@app.post("/api/folders/{folder_id}/delete")
+def delete_folder_via_post(
+    folder_id: int,
+    deleteCourses: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    folder = (
+        db.query(Folder)
+        .filter(Folder.id == folder_id, Folder.user_id == current_user.id)
+        .first()
+    )
+    if not folder:
+        raise HTTPException(status_code=404, detail="文件夹不存在")
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.user_id == current_user.id,
+            Course.folder_id == folder.id,
+            active_course_filter(),
+        )
+        .all()
+    )
+
+    if deleteCourses:
+        for course in courses:
+            soft_delete_course(course, folder.id, folder.title)
+    else:
+        for course in courses:
+            course.folder_id = None
+            course.folder_name = ""
+
+    db.delete(folder)
+    db.commit()
+    return {"ok": True, "deletedFolderId": folder_id, "deleteCourses": deleteCourses}
+
+
 @app.get("/api/courses")
 def list_courses(
     db: Session = Depends(get_db),
