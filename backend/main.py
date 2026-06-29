@@ -38,8 +38,10 @@ from schemas import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = Path(os.getenv("NOTEWHALE_UPLOAD_DIR", str(BASE_DIR / "uploads"))).expanduser()
+if not UPLOAD_DIR.is_absolute():
+    UPLOAD_DIR = BASE_DIR / UPLOAD_DIR
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 Base.metadata.create_all(bind=engine)
 
