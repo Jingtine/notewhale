@@ -1169,21 +1169,21 @@ function HomePage({ user = null, onLogout } = {}) {
         ? String(note.backendCourseId)
         : "";
 
-      let matched = false;
-
       if (backendIdText) {
         // 后端课程只按后端 courseId 统计，避免把本地缓存里的旧同名/旧 api-id 笔记重复算进去。
-        matched = noteBackendCourseId === backendIdText;
+        const matched = noteBackendCourseId === backendIdText;
+        if (matched) {
+          seen.add(noteKey);
+        }
+        return matched;
       } else {
         // 本地课程没有 backendId 时，才按本地 courseId 统计。
-        matched = noteCourseId === courseIdText;
+        const matched = noteCourseId === courseIdText;
+        if (matched) {
+          seen.add(noteKey);
+        }
+        return matched;
       }
-
-      if (matched) {
-        seen.add(noteKey);
-      }
-
-      return matched;
     }).length;
   }
 
@@ -1217,21 +1217,21 @@ function HomePage({ user = null, onLogout } = {}) {
         ? String(resource.backendCourseId)
         : "";
 
-      let matched = false;
-
       if (backendIdText) {
         // 后端课程只按后端 courseId 统计，避免把本地缓存里的旧资料重复算进去。
-        matched = resourceBackendCourseId === backendIdText;
+        const matched = resourceBackendCourseId === backendIdText;
+        if (matched) {
+          seen.add(resourceKey);
+        }
+        return matched;
       } else {
         // 本地课程没有 backendId 时，才按本地 courseId 统计。
-        matched = resourceCourseId === courseIdText;
+        const matched = resourceCourseId === courseIdText;
+        if (matched) {
+          seen.add(resourceKey);
+        }
+        return matched;
       }
-
-      if (matched) {
-        seen.add(resourceKey);
-      }
-
-      return matched;
     }).length;
   }
 

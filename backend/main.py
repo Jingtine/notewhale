@@ -16,12 +16,26 @@ import xml.etree.ElementTree as ET
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from sqlalchemy import inspect, text, or_
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from models import Course, DDL, Folder, Note, Resource, User
+from schemas import (
+    CourseCreate,
+    CourseUpdate,
+    DDLCreate,
+    DDLUpdate,
+    FolderCreate,
+    FolderUpdate,
+    GenerateNoteRequest,
+    LoginRequest,
+    NoteCreate,
+    NoteUpdate,
+    RecognizeDDLRequest,
+    RegisterRequest,
+    RestoreCourseRequest,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -173,98 +187,6 @@ app.add_middleware(
 )
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-
-
-class RegisterRequest(BaseModel):
-    account: str
-    password: str
-    name: str
-
-
-class LoginRequest(BaseModel):
-    account: str
-    password: str
-
-
-class FolderCreate(BaseModel):
-    title: str
-
-
-class FolderUpdate(BaseModel):
-    title: Optional[str] = None
-
-
-class CourseCreate(BaseModel):
-    title: str
-    starred: bool = False
-    folderId: Optional[int] = None
-    folderName: str = ""
-
-
-class CourseUpdate(BaseModel):
-    title: Optional[str] = None
-    starred: Optional[bool] = None
-    folderId: Optional[int] = None
-    folderName: Optional[str] = None
-
-
-class RestoreCourseRequest(BaseModel):
-    folderId: Optional[int] = None
-    folderName: str = ""
-
-
-class DDLCreate(BaseModel):
-    title: str
-    date: str
-    courseId: Optional[int] = None
-    courseName: str = "未归属课程"
-    platform: str = ""
-    note: str = ""
-    completed: bool = False
-    source: str = "手动新建"
-
-
-class DDLUpdate(BaseModel):
-    title: Optional[str] = None
-    date: Optional[str] = None
-    courseId: Optional[int] = None
-    courseName: Optional[str] = None
-    platform: Optional[str] = None
-    note: Optional[str] = None
-    completed: Optional[bool] = None
-    source: Optional[str] = None
-
-
-class NoteCreate(BaseModel):
-    title: str
-    content: str = ""
-    courseId: Optional[int] = None
-    courseName: str = ""
-    source: str = "手动记录"
-    aiGenerated: bool = False
-
-
-class NoteUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    courseId: Optional[int] = None
-    courseName: Optional[str] = None
-    source: Optional[str] = None
-    aiGenerated: Optional[bool] = None
-
-
-class GenerateNoteRequest(BaseModel):
-    courseId: Optional[int] = None
-    courseName: str = "课程"
-    resourceName: str = "课程资料"
-    resourceId: Optional[int] = None
-    rawText: str = ""
-    noteStyle: str = "复习型"
-
-
-class RecognizeDDLRequest(BaseModel):
-    courseId: Optional[int] = None
-    courseName: str = "未归属课程"
 
 
 def timestamp(dt):
@@ -1576,22 +1498,6 @@ def build_ai_note_content(course_name: str, resource_name: str, raw_text: str = 
 """
 
 
-
-
-def strip_markdown_fence(value: str):
-    if not value:
-        return ""
-
-    text_value = str(value).strip()
-
-    if text_value.startswith("```"):
-        text_value = text_value.strip("`").strip()
-        if text_value.lower().startswith("markdown"):
-            text_value = text_value[8:].strip()
-        elif text_value.lower().startswith("md"):
-            text_value = text_value[2:].strip()
-
-    return text_value.strip()
 
 
 def strip_markdown_fence(value: str):

@@ -82,7 +82,7 @@ export async function request(path, options = {}) {
 
   const response = await fetch(url, config);
 
-  let data = null;
+  let data;
   const contentType = response.headers.get("content-type") || "";
 
   if (contentType.includes("application/json")) {

@@ -334,7 +334,6 @@ const pageStyle = {
   justifyContent: "center",
   padding: "32px",
   boxSizing: "border-box",
-  display: "flex",
   flexDirection: "column",
   fontFamily:
     `"Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif`,
