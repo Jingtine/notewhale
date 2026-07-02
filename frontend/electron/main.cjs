@@ -11,6 +11,7 @@ let backendStatus = {
   state: "starting",
   managed: false,
   url: "http://127.0.0.1:8000",
+  dataDir: "",
   message: "正在准备本地后端服务...",
 };
 
@@ -188,6 +189,25 @@ function statusTitle(state) {
   return titles[state] || "正在准备本地服务";
 }
 
+function toSqliteUrl(filePath) {
+  return `sqlite:///${filePath.replace(/\\/g, "/")}`;
+}
+
+function getDesktopBackendPaths() {
+  const dataDir = path.join(app.getPath("userData"), "backend");
+  const uploadsDir = path.join(dataDir, "uploads");
+  const databasePath = path.join(dataDir, "notewhale.db");
+
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  return {
+    dataDir,
+    uploadsDir,
+    databasePath,
+    databaseUrl: toSqliteUrl(databasePath),
+  };
+}
+
 function loadApplication() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -239,6 +259,7 @@ async function startLocalBackend() {
       state: "ready",
       managed: false,
       url: BACKEND_URL,
+      dataDir: "",
       message: "已连接正在运行的本地后端。",
     });
     return;
@@ -246,12 +267,14 @@ async function startLocalBackend() {
 
   const backendDir = path.join(__dirname, "..", "..", "backend");
   const pythonPath = path.join(backendDir, ".venv", "Scripts", "python.exe");
+  const desktopPaths = getDesktopBackendPaths();
 
   if (!fs.existsSync(pythonPath)) {
     updateBackendStatus({
       state: "missing",
       managed: false,
       url: BACKEND_URL,
+      dataDir: desktopPaths.dataDir,
       message: "未找到后端 Python 环境，请先在 backend 目录初始化 .venv。",
     });
     return;
@@ -261,6 +284,7 @@ async function startLocalBackend() {
     state: "starting",
     managed: true,
     url: BACKEND_URL,
+    dataDir: desktopPaths.dataDir,
     message: "正在启动本地后端服务...",
   });
 
@@ -271,8 +295,9 @@ async function startLocalBackend() {
       cwd: backendDir,
       env: {
         ...process.env,
-        DATABASE_URL: "",
-        NOTEWHALE_UPLOAD_DIR: "uploads",
+        DATABASE_URL: desktopPaths.databaseUrl,
+        NOTEWHALE_DESKTOP_DATA_DIR: desktopPaths.dataDir,
+        NOTEWHALE_UPLOAD_DIR: desktopPaths.uploadsDir,
         NOTEWHALE_SECRET_KEY:
           process.env.NOTEWHALE_SECRET_KEY || "notewhale-local-desktop-secret",
         NOTEWHALE_TEXT_API_URL:
@@ -295,6 +320,7 @@ async function startLocalBackend() {
         state: "stopped",
         managed: true,
         url: BACKEND_URL,
+        dataDir: desktopPaths.dataDir,
         message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。`,
       });
     }
@@ -306,6 +332,7 @@ async function startLocalBackend() {
       state: "ready",
       managed: true,
       url: BACKEND_URL,
+      dataDir: desktopPaths.dataDir,
       message: "本地后端已就绪。",
     });
   } else {
@@ -313,6 +340,7 @@ async function startLocalBackend() {
       state: "timeout",
       managed: true,
       url: BACKEND_URL,
+      dataDir: desktopPaths.dataDir,
       message: "本地后端启动超时，请稍后重试或检查 backend 日志。",
     });
   }

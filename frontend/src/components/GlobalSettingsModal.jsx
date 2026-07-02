@@ -196,6 +196,7 @@ function useDesktopBackendStatus() {
     label: "网页版",
     message: "当前运行在浏览器中，后端服务需要手动启动或使用线上 API。",
     url: "",
+    dataDir: "",
     managed: false,
   });
 
@@ -224,6 +225,7 @@ function useDesktopBackendStatus() {
             label: "状态读取失败",
             message: error?.message || "无法读取桌面服务状态。",
             url: "",
+            dataDir: "",
             managed: false,
           });
         }
@@ -261,6 +263,7 @@ function normalizeDesktopBackendStatus(result = {}) {
     label: labels[state] || labels.unknown,
     message: result.message || "桌面服务状态未知。",
     url: result.url || "http://127.0.0.1:8000",
+    dataDir: result.dataDir || "",
     managed: Boolean(result.managed),
   };
 }
@@ -311,6 +314,11 @@ function DesktopServiceSection({ colors, apiStatus, desktopService }) {
       <InfoLine
         label="本地 API"
         value={desktopService.url || apiStatus.apiBaseUrl || "http://127.0.0.1:8000"}
+        colors={colors}
+      />
+      <InfoLine
+        label="数据目录"
+        value={desktopService.dataDir || "仅桌面托管服务会写入用户数据目录"}
         colors={colors}
       />
       <InfoLine
@@ -568,7 +576,7 @@ function InfoLine({ label, value, colors }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: "16px", padding: "10px 0", borderBottom: `1px solid ${colors.border}` }}>
       <span style={{ color: colors.text, fontSize: "13px" }}>{label}</span>
-      <strong style={{ color: colors.title, fontSize: "13px", textAlign: "right" }}>{value}</strong>
+      <strong style={{ color: colors.title, fontSize: "13px", textAlign: "right", minWidth: 0, wordBreak: "break-all" }}>{value}</strong>
     </div>
   );
 }

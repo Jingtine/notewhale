@@ -39,6 +39,7 @@ function normalizeDesktopStatus(result = {}) {
     message: result.message || "桌面服务状态未知。",
     managed: Boolean(result.managed),
     url: result.url || "http://127.0.0.1:8000",
+    dataDir: result.dataDir || "",
   };
 }
 
@@ -54,6 +55,7 @@ async function readDesktopStatus() {
       message: "当前不是桌面版，后端服务由外部环境提供。",
       managed: false,
       url: API_BASE_URL,
+      dataDir: "",
     };
   }
 
@@ -67,6 +69,7 @@ async function readDesktopStatus() {
       message: error?.message || "无法读取桌面服务状态。",
       managed: false,
       url: API_BASE_URL,
+      dataDir: "",
     };
   }
 }
@@ -89,6 +92,7 @@ function LoginPage({ onLogin }) {
     message: "正在检测登录所需服务。",
     managed: false,
     url: API_BASE_URL,
+    dataDir: "",
   });
 
   const from = searchParams.get("from") || "/";
