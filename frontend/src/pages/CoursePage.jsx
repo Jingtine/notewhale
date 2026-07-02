@@ -2848,15 +2848,32 @@ function ResourceViewerModal({ darkMode, colors, resource, relatedNotes = [], on
   const canPreviewImage = resource.objectUrl && resource.mimeType?.startsWith("image/");
   const canPreviewPdf = resource.objectUrl && resource.mimeType === "application/pdf";
   const canOpenFile = Boolean(resource.objectUrl);
+  const textStatus = getResourceTextStatus(resource);
+  const canGenerateNote = isResourceReadyForAi(resource);
+  const previewLabel = canPreviewImage ? "图片预览" : canPreviewPdf ? "PDF 预览" : canOpenFile ? "文件可打开" : "需要重新上传";
 
   return (
-    <ModalShell darkMode={darkMode} colors={colors} width="880px">
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "20px", alignItems: "flex-start" }}>
-        <div>
-          <h2 style={{ ...modalTitleStyle(colors), marginBottom: "8px" }}>{resource.name}</h2>
-          <p style={{ margin: 0, color: colors.text, fontSize: "14px" }}>
-            {resource.type} · {formatFileSize(resource.size)} · {new Date(resource.createdAt).toLocaleDateString()}
-          </p>
+    <ModalShell darkMode={darkMode} colors={colors} width="940px">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "20px", alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <h2
+            style={{
+              ...modalTitleStyle(colors),
+              marginBottom: "8px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {resource.name}
+          </h2>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <ResourceStatusBadge colors={colors} tone="neutral" text={resource.type || "资料"} />
+            <ResourceStatusBadge colors={colors} tone="neutral" text={formatFileSize(resource.size)} />
+            <ResourceStatusBadge colors={colors} tone="neutral" text={new Date(resource.createdAt).toLocaleDateString()} />
+            <ResourceStatusBadge colors={colors} tone={resource.backendSynced ? "success" : "muted"} text={resource.backendSynced ? "已同步" : "本地临时"} />
+            <ResourceStatusBadge colors={colors} tone={textStatus.tone} text={textStatus.label} />
+          </div>
         </div>
         <button onClick={onClose} style={closeButtonStyle(colors)}>×</button>
       </div>
@@ -2865,12 +2882,22 @@ function ResourceViewerModal({ darkMode, colors, resource, relatedNotes = [], on
         {canPreviewImage && <img src={resource.objectUrl} alt={resource.name} style={{ maxWidth: "100%", maxHeight: "420px", borderRadius: "16px" }} />}
         {canPreviewPdf && <iframe src={resource.objectUrl} title={resource.name} style={{ width: "100%", height: "420px", border: "none", borderRadius: "16px" }} />}
         {!canPreviewImage && !canPreviewPdf && (
-          <div style={{ textAlign: "center", color: colors.text, lineHeight: 1.8 }}>
+          <div style={{ textAlign: "center", color: colors.text, lineHeight: 1.7, maxWidth: "440px" }}>
             <div style={{ ...fileBadgeStyle(colors), margin: "0 auto 16px" }}>{resource.type}</div>
-            <p style={{ margin: 0 }}>该类型资料以文件方式查看。</p>
-            {!canOpenFile && <p style={{ margin: "8px 0 0", fontSize: "13px", color: colors.muted }}>浏览器刷新后不会保留本地文件预览；重新上传后可直接打开。</p>}
+            <h3 style={{ margin: 0, color: colors.title, fontSize: "18px" }}>{previewLabel}</h3>
+            <p style={{ margin: "8px 0 0", fontSize: "13px", color: colors.text }}>
+              {canOpenFile
+                ? "当前格式暂不内嵌预览，可以直接打开原文件查看。"
+                : "本地临时预览已失效，重新上传后可恢复预览和资料处理。"}
+            </p>
           </div>
         )}
+      </div>
+
+      <div style={resourceInsightGridStyle}>
+        <ResourceInsight label="预览" value={previewLabel} colors={colors} />
+        <ResourceInsight label="正文解析" value={textStatus.detail || textStatus.label} colors={colors} />
+        <ResourceInsight label="关联笔记" value={`${relatedNotes.length} 条`} colors={colors} />
       </div>
 
       {relatedNotes.length > 0 && (
@@ -2902,15 +2929,62 @@ function ResourceViewerModal({ darkMode, colors, resource, relatedNotes = [], on
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "22px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", marginTop: "22px", alignItems: "center" }}>
+        <span style={{ color: colors.text, fontSize: "13px" }}>
+          {canGenerateNote ? "可基于正文生成 AI 笔记" : textStatus.detail || "该资料暂不能生成 AI 笔记"}
+        </span>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", flexWrap: "wrap" }}>
         {canOpenFile && (
           <a href={resource.objectUrl} target="_blank" rel="noreferrer" style={{ ...secondaryButton(colors), textDecoration: "none" }}>
             打开文件
           </a>
         )}
-        <button onClick={onGenerate} style={primaryButton(colors)}>AI 生成笔记</button>
+          <button onClick={onGenerate} disabled={!canGenerateNote} style={disabledButtonStyle(primaryButton(colors), !canGenerateNote)}>
+            AI 生成笔记
+          </button>
+        </div>
       </div>
     </ModalShell>
+  );
+}
+
+function ResourceStatusBadge({ colors, tone = "neutral", text }) {
+  const toneStyle =
+    tone === "success"
+      ? { color: colors.success || "#10B981", background: "rgba(16,185,129,0.10)" }
+      : tone === "warning"
+        ? { color: "#B45309", background: "rgba(245,158,11,0.12)" }
+        : tone === "muted"
+          ? { color: colors.muted, background: colors.soft }
+          : { color: colors.active, background: colors.softer };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: "26px",
+        padding: "0 10px",
+        borderRadius: "999px",
+        border: `1px solid ${colors.border}`,
+        fontSize: "12px",
+        fontWeight: 800,
+        ...toneStyle,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function ResourceInsight({ label, value, colors }) {
+  return (
+    <div style={{ minWidth: 0, background: colors.soft, border: `1px solid ${colors.border}`, borderRadius: "14px", padding: "12px 14px" }}>
+      <span style={{ display: "block", color: colors.text, fontSize: "12px", fontWeight: 800 }}>{label}</span>
+      <strong style={{ display: "block", color: colors.title, fontSize: "14px", marginTop: "5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {value}
+      </strong>
+    </div>
   );
 }
 
@@ -3336,6 +3410,13 @@ function resourcePreviewAreaStyle(colors) {
     boxSizing: "border-box",
   };
 }
+
+const resourceInsightGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "10px",
+  marginTop: "14px",
+};
 
 export default CoursePage;
 
