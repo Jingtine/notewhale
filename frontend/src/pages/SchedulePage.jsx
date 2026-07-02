@@ -20,6 +20,8 @@ const START_HOUR = 8;
 const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
+const NJU_TEACHING_DIRECT_URL =
+  "https://ehall.nju.edu.cn/portal/html/select_role.html?appId=7170579276974719";
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
 
@@ -176,9 +178,13 @@ function SchedulePage({ user = null, onLogout } = {}) {
     setFixedClasses((prev) => prev.filter((item) => item.id !== classId));
   }
 
-  function openNjuTeachingPortal() {
-    window.open(NJU_TEACHING_PORTAL_URL, "_blank", "noopener,noreferrer");
-    setScheduleImportMessage("已打开南京大学本科生院官方入口。若校外访问失败，先连接学校 VPN，再进入教服平台复制或导出课表。");
+  function openNjuTeachingPortal(url = NJU_TEACHING_PORTAL_URL, direct = false) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    setScheduleImportMessage(
+      direct
+        ? "已打开南京大学教服平台直达入口。若出现 404 或空白页，先连接学校 VPN，或改用官方入口进入。"
+        : "已打开南京大学本科生院官方入口。若校外访问失败，先连接学校 VPN，再进入教服平台复制或导出课表。"
+    );
   }
 
   function readScheduleImportFile(event) {
@@ -391,8 +397,19 @@ function SchedulePage({ user = null, onLogout } = {}) {
               打开本科生院官方入口后进入教服平台，NoteWhale 不接触也不保存账号密码。
             </p>
             <div style={importActionRowStyle}>
-              <button type="button" onClick={openNjuTeachingPortal} style={primaryButtonStyle(colors)}>
-                打开官方入口
+              <button
+                type="button"
+                onClick={() => openNjuTeachingPortal(NJU_TEACHING_DIRECT_URL, true)}
+                style={primaryButtonStyle(colors)}
+              >
+                教服直达
+              </button>
+              <button
+                type="button"
+                onClick={() => openNjuTeachingPortal()}
+                style={outlineButtonStyle(colors)}
+              >
+                官方入口
               </button>
               <button type="button" onClick={previewImportedSchedule} style={outlineButtonStyle(colors)}>
                 解析预览
@@ -906,7 +923,7 @@ function inputStyle(colors) {
 
 const importActionRowStyle = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(94px, 1fr))",
   gap: "10px",
   marginTop: "14px",
 };
