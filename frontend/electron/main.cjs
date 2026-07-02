@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -446,6 +446,23 @@ ipcMain.handle("backend:status", async () => {
   }
 
   return backendStatus;
+});
+
+ipcMain.handle("desktop:open-data-dir", async () => {
+  const dataDir = backendStatus.dataDir || getDesktopBackendPaths().dataDir;
+
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  const errorMessage = await shell.openPath(dataDir);
+
+  if (errorMessage) {
+    throw new Error(errorMessage);
+  }
+
+  return {
+    ok: true,
+    path: dataDir,
+  };
 });
 
 app.whenReady().then(async () => {

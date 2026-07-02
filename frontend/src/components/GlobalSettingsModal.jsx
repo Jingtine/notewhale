@@ -241,7 +241,35 @@ function useDesktopBackendStatus() {
     };
   }, []);
 
-  return status;
+  async function refresh() {
+    const bridge =
+      typeof window !== "undefined" ? window.notewhaleDesktop : null;
+
+    if (typeof bridge?.getBackendStatus !== "function") {
+      return status;
+    }
+
+    const nextStatus = normalizeDesktopBackendStatus(await bridge.getBackendStatus());
+    setStatus(nextStatus);
+    return nextStatus;
+  }
+
+  async function openDataDir() {
+    const bridge =
+      typeof window !== "undefined" ? window.notewhaleDesktop : null;
+
+    if (typeof bridge?.openDataDirectory !== "function") {
+      throw new Error("当前环境不支持打开桌面数据目录。");
+    }
+
+    return bridge.openDataDirectory();
+  }
+
+  return {
+    ...status,
+    refresh,
+    openDataDir,
+  };
 }
 
 function normalizeDesktopBackendStatus(result = {}) {
@@ -269,12 +297,44 @@ function normalizeDesktopBackendStatus(result = {}) {
 }
 
 function DesktopServiceSection({ colors, apiStatus, desktopService }) {
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionBusy, setActionBusy] = useState("");
   const tone =
     desktopService.state === "ready"
       ? "success"
       : desktopService.state === "starting" || desktopService.state === "browser"
         ? "default"
         : "warning";
+
+  async function handleRefresh() {
+    if (typeof desktopService.refresh !== "function") return;
+
+    try {
+      setActionBusy("refresh");
+      setActionMessage("");
+      const nextStatus = await desktopService.refresh();
+      setActionMessage(`状态已刷新：${nextStatus.label}`);
+    } catch (error) {
+      setActionMessage(error?.message || "刷新桌面服务状态失败。");
+    } finally {
+      setActionBusy("");
+    }
+  }
+
+  async function handleOpenDataDir() {
+    if (typeof desktopService.openDataDir !== "function") return;
+
+    try {
+      setActionBusy("open");
+      setActionMessage("");
+      const result = await desktopService.openDataDir();
+      setActionMessage(`已打开数据目录：${result.path}`);
+    } catch (error) {
+      setActionMessage(error?.message || "无法打开桌面数据目录。");
+    } finally {
+      setActionBusy("");
+    }
+  }
 
   return (
     <section style={sectionStyle(colors)}>
@@ -285,7 +345,25 @@ function DesktopServiceSection({ colors, apiStatus, desktopService }) {
             桌面版会自动启动本地后端，用于账号、课程、DDL、资料和南京大学课表导入等功能。
           </p>
         </div>
-        <span style={desktopStatusPillStyle(colors, tone)}>{desktopService.label}</span>
+        <div style={desktopActionsStyle}>
+          <span style={desktopStatusPillStyle(colors, tone)}>{desktopService.label}</span>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={!desktopService.available || Boolean(actionBusy)}
+            style={desktopActionButtonStyle(colors, Boolean(actionBusy))}
+          >
+            刷新
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenDataDir}
+            disabled={!desktopService.available || Boolean(actionBusy)}
+            style={desktopActionButtonStyle(colors, Boolean(actionBusy))}
+          >
+            打开目录
+          </button>
+        </div>
       </div>
 
       <div style={summaryGridStyle}>
@@ -331,6 +409,11 @@ function DesktopServiceSection({ colors, apiStatus, desktopService }) {
         value={apiStatus.online ? apiStatus.apiBaseUrl || "已连接" : apiStatus.message || "未连接"}
         colors={colors}
       />
+      {actionMessage && (
+        <div style={desktopActionMessageStyle(colors)}>
+          {actionMessage}
+        </div>
+      )}
     </section>
   );
 }
@@ -940,6 +1023,44 @@ function closeButtonStyle(colors) {
     color: colors.text,
     cursor: "pointer",
     fontSize: "22px",
+  };
+}
+
+const desktopActionsStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+  flexShrink: 0,
+};
+
+function desktopActionButtonStyle(colors, disabled) {
+  return {
+    height: "32px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.card,
+    color: colors.active,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "12px",
+    fontWeight: 900,
+    padding: "0 10px",
+    opacity: disabled ? 0.58 : 1,
+  };
+}
+
+function desktopActionMessageStyle(colors) {
+  return {
+    marginTop: "12px",
+    color: colors.text,
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "12px",
+    padding: "10px 12px",
+    fontSize: "12px",
+    lineHeight: 1.6,
+    wordBreak: "break-all",
   };
 }
 
