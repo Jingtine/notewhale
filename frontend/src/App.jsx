@@ -9,6 +9,7 @@ const HomePage = lazy(() => import("./pages/HomePage"));
 const CoursePage = lazy(() => import("./pages/CoursePage"));
 const NoteEditorPage = lazy(() => import("./pages/NoteEditorPage"));
 const DDLPage = lazy(() => import("./pages/DDLPage"));
+const SchedulePage = lazy(() => import("./pages/SchedulePage"));
 
 function App() {
   const [user, setUser] = useState(() => getSavedUser());
@@ -132,6 +133,15 @@ function App() {
         element={
           <ProtectedRoute user={user}>
             <DDLPage user={user} onLogout={handleLogout} />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/schedule"
+        element={
+          <ProtectedRoute user={user}>
+            <SchedulePage user={user} onLogout={handleLogout} />
           </ProtectedRoute>
         }
       />

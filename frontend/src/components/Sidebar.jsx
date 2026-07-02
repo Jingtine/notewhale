@@ -1,4 +1,5 @@
 import logo from "../assets/logo_main.png";
+import { useNavigate } from "react-router-dom";
 
 function Sidebar({
   folders,
@@ -9,11 +10,13 @@ function Sidebar({
   darkMode = false,
   onOpenSettings,
 }) {
+  const navigate = useNavigate();
   const menuItems = [
     { key: "全部", label: "首页", icon: "⌂" },
     { key: "全部课程", label: "全部课程", icon: "▤" },
     { key: "最近使用", label: "最近使用", icon: "◷" },
     { key: "收藏夹", label: "收藏夹", icon: "☆" },
+    { key: "学习日程", label: "学习日程", icon: "calendar", path: "/schedule" },
     { key: "回收站", label: "回收站", icon: "trash" },
   ];
 
@@ -134,7 +137,14 @@ function Sidebar({
           return (
             <div
               key={item.key}
-              onClick={() => setSelectedFolder(item.key)}
+              onClick={() => {
+                if (item.path) {
+                  navigate(item.path);
+                  return;
+                }
+
+                setSelectedFolder(item.key);
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -162,7 +172,7 @@ function Sidebar({
                   color: active ? colors.activeText : colors.icon,
                 }}
               >
-                {item.icon === "trash" ? <TrashIcon /> : item.icon}
+                {item.icon === "trash" ? <TrashIcon /> : item.icon === "calendar" ? <CalendarIcon /> : item.icon}
               </span>
 
               <span
@@ -339,6 +349,27 @@ function TrashIcon() {
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <path d="M3.5 9h17" />
+      <path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2" />
     </svg>
   );
 }
