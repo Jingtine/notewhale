@@ -6,6 +6,7 @@ const path = require("node:path");
 
 let mainWindow = null;
 let backendProcess = null;
+let startupScreenVisible = false;
 let backendStatus = {
   state: "starting",
   managed: false,
@@ -34,7 +35,165 @@ function createMainWindow() {
     },
   });
 
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function updateBackendStatus(nextStatus) {
+  backendStatus = nextStatus;
+
+  if (startupScreenVisible) {
+    loadStartupScreen();
+  }
+}
+
+function loadStartupScreen() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  startupScreenVisible = true;
+  const html = `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NoteWhale</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f5f9ff;
+        color: #173b63;
+        font-family: "Inter", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      }
+      .shell {
+        width: min(520px, calc(100vw - 56px));
+        padding: 32px;
+        border: 1px solid #dbe7f5;
+        border-radius: 24px;
+        background: rgba(255,255,255,0.92);
+        box-shadow: 0 24px 64px rgba(15,42,74,0.14);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 26px;
+      }
+      .mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 15px;
+        display: grid;
+        place-items: center;
+        color: #ffffff;
+        background: #2563eb;
+        font-size: 22px;
+        font-weight: 900;
+      }
+      .name {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 900;
+      }
+      .sub {
+        margin: 4px 0 0;
+        color: #64748b;
+        font-size: 13px;
+      }
+      .status {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 15px;
+        border: 1px solid #e2eaf5;
+        border-radius: 16px;
+        background: #f8fbff;
+      }
+      .spinner {
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+        border: 3px solid #bfdbfe;
+        border-top-color: #2563eb;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        flex-shrink: 0;
+      }
+      .state {
+        margin: 0;
+        color: #173b63;
+        font-size: 15px;
+        font-weight: 900;
+      }
+      .message {
+        margin: 5px 0 0;
+        color: #64748b;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+      .foot {
+        margin: 18px 0 0;
+        color: #94a3b8;
+        font-size: 12px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="brand">
+        <div class="mark">鲸</div>
+        <div>
+          <h1 class="name">NoteWhale 桌面版</h1>
+          <p class="sub">正在准备你的学习工作区</p>
+        </div>
+      </section>
+      <section class="status">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>
+          <p class="state">${escapeHtml(statusTitle(backendStatus.state))}</p>
+          <p class="message">${escapeHtml(backendStatus.message)}</p>
+        </div>
+      </section>
+      <p class="foot">账号、课程、DDL、资料和课表导入会使用本地后端服务。</p>
+    </main>
+  </body>
+</html>`;
+
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+}
+
+function statusTitle(state) {
+  const titles = {
+    ready: "本地服务已就绪",
+    starting: "正在启动本地服务",
+    stopping: "正在关闭本地服务",
+    timeout: "本地服务启动超时",
+    missing: "本地运行环境缺失",
+    stopped: "本地服务已停止",
+  };
+
+  return titles[state] || "正在准备本地服务";
+}
+
+function loadApplication() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  startupScreenVisible = false;
   const devServerUrl = process.env.NOTEWHALE_DEV_SERVER_URL;
+
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
   } else {
@@ -76,12 +235,12 @@ async function waitForBackendReady(timeoutMs = 8000) {
 
 async function startLocalBackend() {
   if (await checkBackendHealth()) {
-    backendStatus = {
+    updateBackendStatus({
       state: "ready",
       managed: false,
       url: BACKEND_URL,
       message: "已连接正在运行的本地后端。",
-    };
+    });
     return;
   }
 
@@ -89,14 +248,21 @@ async function startLocalBackend() {
   const pythonPath = path.join(backendDir, ".venv", "Scripts", "python.exe");
 
   if (!fs.existsSync(pythonPath)) {
-    backendStatus = {
+    updateBackendStatus({
       state: "missing",
       managed: false,
       url: BACKEND_URL,
       message: "未找到后端 Python 环境，请先在 backend 目录初始化 .venv。",
-    };
+    });
     return;
   }
+
+  updateBackendStatus({
+    state: "starting",
+    managed: true,
+    url: BACKEND_URL,
+    message: "正在启动本地后端服务...",
+  });
 
   backendProcess = spawn(
     pythonPath,
@@ -123,49 +289,42 @@ async function startLocalBackend() {
     },
   );
 
-  backendStatus = {
-    state: "starting",
-    managed: true,
-    url: BACKEND_URL,
-    message: "正在启动本地后端服务...",
-  };
-
   backendProcess.once("exit", (code, signal) => {
     if (backendStatus.state !== "stopping") {
-      backendStatus = {
+      updateBackendStatus({
         state: "stopped",
         managed: true,
         url: BACKEND_URL,
         message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。`,
-      };
+      });
     }
     backendProcess = null;
   });
 
   if (await waitForBackendReady()) {
-    backendStatus = {
+    updateBackendStatus({
       state: "ready",
       managed: true,
       url: BACKEND_URL,
       message: "本地后端已就绪。",
-    };
+    });
   } else {
-    backendStatus = {
+    updateBackendStatus({
       state: "timeout",
       managed: true,
       url: BACKEND_URL,
       message: "本地后端启动超时，请稍后重试或检查 backend 日志。",
-    };
+    });
   }
 }
 
 function stopLocalBackend() {
   if (!backendProcess) return;
-  backendStatus = {
+  updateBackendStatus({
     ...backendStatus,
     state: "stopping",
     message: "正在关闭本地后端服务...",
-  };
+  });
   backendProcess.kill();
 }
 
@@ -250,24 +409,27 @@ ipcMain.handle("backend:status", async () => {
   const healthy = await checkBackendHealth();
 
   if (healthy && backendStatus.state !== "ready") {
-    backendStatus = {
+    updateBackendStatus({
       ...backendStatus,
       state: "ready",
       url: BACKEND_URL,
       message: "本地后端已就绪。",
-    };
+    });
   }
 
   return backendStatus;
 });
 
 app.whenReady().then(async () => {
-  await startLocalBackend();
   createMainWindow();
+  loadStartupScreen();
+  await startLocalBackend();
+  loadApplication();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
+      loadApplication();
     }
   });
 });
