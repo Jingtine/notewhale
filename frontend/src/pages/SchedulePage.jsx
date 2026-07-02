@@ -21,7 +21,7 @@ const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const NJU_TEACHING_DIRECT_URL =
-  "https://ehall.nju.edu.cn/portal/html/select_role.html?appId=7170579276974719";
+  "https://authserver.nju.edu.cn/authserver/login?service=https%3A%2F%2Fehallapp.nju.edu.cn%2Fjwapp%2Fsys%2Fwdkb%2F*default%2Findex.do%23%2Fxskcb";
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
 
@@ -182,7 +182,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
     window.open(url, "_blank", "noopener,noreferrer");
     setScheduleImportMessage(
       direct
-        ? "已打开南京大学教服平台直达入口。若出现 404 或空白页，先连接学校 VPN，或改用官方入口进入。"
+        ? "已打开南京大学统一认证课表入口。登录后进入“我的课表”，复制或导出课表再粘贴回来解析。"
         : "已打开南京大学本科生院官方入口。若校外访问失败，先连接学校 VPN，再进入教服平台复制或导出课表。"
     );
   }
@@ -402,7 +402,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                 onClick={() => openNjuTeachingPortal(NJU_TEACHING_DIRECT_URL, true)}
                 style={primaryButtonStyle(colors)}
               >
-                教服直达
+                统一认证直达
               </button>
               <button
                 type="button"
