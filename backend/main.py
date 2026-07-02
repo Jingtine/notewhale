@@ -33,9 +33,11 @@ from schemas import (
     LoginRequest,
     NoteCreate,
     NoteUpdate,
+    PasswordChangeRequest,
     RecognizeDDLRequest,
     RegisterRequest,
     RestoreCourseRequest,
+    UserProfileUpdate,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -619,6 +621,46 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @app.get("/api/auth/me")
 def me(current_user: User = Depends(get_current_user)):
     return user_to_dict(current_user)
+
+
+@app.patch("/api/auth/me")
+def update_me(
+    payload: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    name = (payload.name or "").strip()
+
+    if not name:
+        raise HTTPException(status_code=400, detail="昵称不能为空")
+
+    current_user.name = name
+    current_user.avatar = name[:1].upper()
+
+    db.commit()
+    db.refresh(current_user)
+
+    return user_to_dict(current_user)
+
+
+@app.post("/api/auth/password")
+def change_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_password = payload.currentPassword or ""
+    new_password = payload.newPassword or ""
+
+    if not verify_password(current_password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="当前密码不正确")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少需要 6 位")
+
+    current_user.password_hash = hash_password(new_password)
+    db.commit()
+
+    return {"ok": True, "message": "密码已更新"}
 
 
 @app.get("/api/folders")

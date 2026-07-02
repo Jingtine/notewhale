@@ -74,6 +74,10 @@ function App() {
     setUser(null);
   }
 
+  function handleUserUpdated(nextUser) {
+    setUser(normalizeUser(nextUser));
+  }
+
   if (authChecking) {
     return <AppLoadingMessage text="正在恢复登录状态..." />;
   }
@@ -96,7 +100,11 @@ function App() {
         path="/"
         element={
           <ProtectedRoute user={user}>
-            <HomePage user={user} onLogout={handleLogout} />
+            <HomePage
+              user={user}
+              onLogout={handleLogout}
+              onUserUpdated={handleUserUpdated}
+            />
           </ProtectedRoute>
         }
       />

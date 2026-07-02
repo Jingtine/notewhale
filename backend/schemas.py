@@ -14,6 +14,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserProfileUpdate(BaseModel):
+    name: str
+
+
+class PasswordChangeRequest(BaseModel):
+    currentPassword: str
+    newPassword: str
+
+
 class FolderCreate(BaseModel):
     title: str
 

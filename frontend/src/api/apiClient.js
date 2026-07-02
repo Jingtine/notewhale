@@ -44,8 +44,12 @@ export function saveAuthSession(session) {
     localStorage.setItem(TOKEN_STORAGE_KEY, session.token);
   }
 
-  if (session?.user) {
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
+  saveUser(session?.user);
+}
+
+export function saveUser(user) {
+  if (user) {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
   }
 }
 

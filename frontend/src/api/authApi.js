@@ -1,4 +1,4 @@
-import { clearAuthSession, request, saveAuthSession } from "./apiClient";
+import { clearAuthSession, request, saveAuthSession, saveUser } from "./apiClient";
 
 export async function registerAccount({
   account,
@@ -37,6 +37,28 @@ export async function loginAccount({ account, password }) {
 
 export async function getCurrentUser() {
   return request("/api/auth/me");
+}
+
+export async function updateProfile({ name }) {
+  const user = await request("/api/auth/me", {
+    method: "PATCH",
+    body: {
+      name,
+    },
+  });
+
+  saveUser(user);
+  return user;
+}
+
+export async function changePassword({ currentPassword, newPassword }) {
+  return request("/api/auth/password", {
+    method: "POST",
+    body: {
+      currentPassword,
+      newPassword,
+    },
+  });
 }
 
 export function logoutAccount() {

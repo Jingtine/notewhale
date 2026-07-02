@@ -56,7 +56,7 @@ function createLocalId() {
   return Date.now();
 }
 
-function HomePage({ user = null, onLogout } = {}) {
+function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [selectedFolder, setSelectedFolder] = useState("全部");
   const [searchText, setSearchText] = useState("");
   const [darkMode, setDarkMode] = useState(() =>
@@ -1415,6 +1415,7 @@ function HomePage({ user = null, onLogout } = {}) {
           aiStatus={aiStatus}
           aiModelSettings={aiModelSettings}
           onChangeAiModelSettings={saveAiModelSettings}
+          onUserUpdated={onUserUpdated}
           onClose={() => setShowDataStatus(false)}
         />
       )}

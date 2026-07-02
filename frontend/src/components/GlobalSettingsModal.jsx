@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { changePassword, updateProfile } from "../api/authApi";
 import AiModelSettingsPanel from "./AiModelSettingsPanel";
 
 function GlobalSettingsModal({
@@ -15,6 +18,7 @@ function GlobalSettingsModal({
   aiStatus,
   aiModelSettings,
   onChangeAiModelSettings,
+  onUserUpdated,
   onClose,
 }) {
   const colors = {
@@ -63,6 +67,12 @@ function GlobalSettingsModal({
           <SummaryCard label="学习项" value={noteCount + resourceCount + ddlCount} detail={`${activeDdlCount} 个待办 DDL`} colors={colors} />
         </div>
 
+        <AccountSettingsSection
+          user={user}
+          colors={colors}
+          onUserUpdated={onUserUpdated}
+        />
+
         <section style={sectionStyle(colors)}>
           <div style={sectionHeaderStyle}>
             <div>
@@ -110,6 +120,156 @@ function SummaryCard({ label, value, detail, colors, tone = "default" }) {
   );
 }
 
+function AccountSettingsSection({ user, colors, onUserUpdated }) {
+  const [profileName, setProfileName] = useState(user?.name || "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState("default");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  async function handleSaveProfile(event) {
+    event.preventDefault();
+
+    const nextName = profileName.trim();
+
+    if (!nextName) {
+      setMessageTone("warning");
+      setMessage("昵称不能为空");
+      return;
+    }
+
+    try {
+      setSavingProfile(true);
+      setMessage("");
+
+      const nextUser = await updateProfile({ name: nextName });
+      onUserUpdated?.(nextUser);
+
+      setMessageTone("success");
+      setMessage("账号资料已更新");
+    } catch (error) {
+      setMessageTone("warning");
+      setMessage(error.message || "账号资料更新失败");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function handleChangePassword(event) {
+    event.preventDefault();
+
+    if (newPassword.length < 6) {
+      setMessageTone("warning");
+      setMessage("新密码至少需要 6 位");
+      return;
+    }
+
+    try {
+      setSavingPassword(true);
+      setMessage("");
+
+      await changePassword({ currentPassword, newPassword });
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setMessageTone("success");
+      setMessage("密码已更新，下次登录请使用新密码");
+    } catch (error) {
+      setMessageTone("warning");
+      setMessage(error.message || "密码更新失败");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  const statusColor =
+    messageTone === "success"
+      ? colors.success
+      : messageTone === "warning"
+        ? colors.warning
+        : colors.text;
+
+  return (
+    <section style={sectionStyle(colors)}>
+      <div style={sectionHeaderStyle}>
+        <div>
+          <h3 style={sectionTitleStyle(colors)}>账号与安全</h3>
+          <p style={sectionTextStyle(colors)}>
+            管理当前账号的展示名称和登录密码。账号邮箱暂不支持修改。
+          </p>
+        </div>
+      </div>
+
+      <div style={accountGridStyle}>
+        <form onSubmit={handleSaveProfile} style={accountPanelStyle(colors)}>
+          <div>
+            <div style={fieldLabelStyle(colors)}>登录账号</div>
+            <div style={accountReadonlyStyle(colors)}>
+              {user?.account || user?.email || "本地体验账号"}
+            </div>
+          </div>
+          <label style={fieldWrapperStyle}>
+            <span style={fieldLabelStyle(colors)}>展示昵称</span>
+            <input
+              value={profileName}
+              onChange={(event) => setProfileName(event.target.value)}
+              placeholder="输入昵称"
+              style={inputStyle(colors)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingProfile}
+            style={primaryButtonStyle(colors, savingProfile)}
+          >
+            {savingProfile ? "保存中..." : "保存资料"}
+          </button>
+        </form>
+
+        <form onSubmit={handleChangePassword} style={accountPanelStyle(colors)}>
+          <label style={fieldWrapperStyle}>
+            <span style={fieldLabelStyle(colors)}>当前密码</span>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="输入当前密码"
+              autoComplete="current-password"
+              style={inputStyle(colors)}
+            />
+          </label>
+          <label style={fieldWrapperStyle}>
+            <span style={fieldLabelStyle(colors)}>新密码</span>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="至少 6 位"
+              autoComplete="new-password"
+              style={inputStyle(colors)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingPassword}
+            style={secondaryButtonStyle(colors, savingPassword)}
+          >
+            {savingPassword ? "更新中..." : "修改密码"}
+          </button>
+        </form>
+      </div>
+
+      {message && (
+        <div style={{ color: statusColor, fontSize: "13px", fontWeight: 800, marginTop: "12px" }}>
+          {message}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function InfoLine({ label, value, colors }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: "16px", padding: "10px 0", borderBottom: `1px solid ${colors.border}` }}>
@@ -125,6 +285,91 @@ function Capability({ colors, children }) {
       {children}
     </div>
   );
+}
+
+const accountGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: "16px",
+};
+
+const fieldWrapperStyle = {
+  display: "grid",
+  gap: "8px",
+};
+
+function accountPanelStyle(colors) {
+  return {
+    display: "grid",
+    gap: "12px",
+    alignContent: "start",
+    background: colors.panel,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "14px",
+    padding: "14px",
+  };
+}
+
+function fieldLabelStyle(colors) {
+  return {
+    color: colors.muted,
+    fontSize: "12px",
+    fontWeight: 900,
+  };
+}
+
+function accountReadonlyStyle(colors) {
+  return {
+    color: colors.title,
+    fontSize: "14px",
+    fontWeight: 900,
+    marginTop: "8px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
+function inputStyle(colors) {
+  return {
+    height: "40px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.panel,
+    color: colors.title,
+    padding: "0 12px",
+    fontSize: "14px",
+    outline: "none",
+    boxSizing: "border-box",
+  };
+}
+
+function primaryButtonStyle(colors, disabled) {
+  return {
+    height: "40px",
+    border: "none",
+    borderRadius: "10px",
+    background: colors.active,
+    color: "#FFFFFF",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "14px",
+    fontWeight: 900,
+    opacity: disabled ? 0.64 : 1,
+  };
+}
+
+function secondaryButtonStyle(colors, disabled) {
+  return {
+    height: "40px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.panel,
+    color: colors.active,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "14px",
+    fontWeight: 900,
+    opacity: disabled ? 0.64 : 1,
+  };
 }
 
 function overlayStyle(darkMode) {
