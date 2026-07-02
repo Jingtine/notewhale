@@ -7,6 +7,7 @@ import { getDdls as getBackendDdls } from "../api/ddlApi";
 import { getFolders as getBackendFolders } from "../api/folderApi";
 import { mapBackendFolder } from "../data/courseFolderStore";
 import { mapBackendDdl } from "../data/learningItemMappers";
+import { parseScheduleImportText } from "../data/scheduleImport";
 import {
   readStorageBoolean,
   readUserStorageArray,
@@ -19,6 +20,8 @@ const START_HOUR = 8;
 const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
+const NJU_TEACHING_PORTAL_URL =
+  "https://ehall.nju.edu.cn/portal/html/select_role.html?appId=7170579276974719";
 
 function SchedulePage({ user = null, onLogout } = {}) {
   const navigate = useNavigate();
@@ -40,6 +43,12 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [classEnd, setClassEnd] = useState("09:40");
   const [classLocation, setClassLocation] = useState("");
   const [classCourseId, setClassCourseId] = useState("");
+  const [scheduleImportText, setScheduleImportText] = useState("");
+  const [scheduleImportPreview, setScheduleImportPreview] = useState([]);
+  const [scheduleImportErrors, setScheduleImportErrors] = useState([]);
+  const [scheduleImportMessage, setScheduleImportMessage] = useState(
+    "不保存账号密码，仅解析你粘贴或导出的课表内容。"
+  );
   const [selectedFolder, setSelectedFolder] = useState("学习日程");
   const [searchText, setSearchText] = useState("");
 
@@ -165,6 +174,58 @@ function SchedulePage({ user = null, onLogout } = {}) {
 
   function deleteFixedClass(classId) {
     setFixedClasses((prev) => prev.filter((item) => item.id !== classId));
+  }
+
+  function openNjuTeachingPortal() {
+    window.open(NJU_TEACHING_PORTAL_URL, "_blank", "noopener,noreferrer");
+    setScheduleImportMessage("已打开南京大学教服平台。登录后复制或导出课表，再粘贴回来解析。");
+  }
+
+  function readScheduleImportFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setScheduleImportText(String(reader.result || ""));
+      setScheduleImportMessage(`已读取 ${file.name}，可以先解析预览。`);
+    };
+    reader.onerror = () => {
+      setScheduleImportMessage("文件读取失败，可以直接复制课表文本粘贴。");
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
+  function previewImportedSchedule() {
+    const result = parseScheduleImportText(scheduleImportText);
+    setScheduleImportPreview(result.classes);
+    setScheduleImportErrors(result.errors);
+    setScheduleImportMessage(
+      result.classes.length > 0
+        ? `已识别 ${result.classes.length} 门固定课程。`
+        : "还没有识别到课程，请检查课表内容是否包含课程、星期、时间或节次。"
+    );
+  }
+
+  function importScheduleClasses() {
+    const result = parseScheduleImportText(scheduleImportText);
+    setScheduleImportPreview(result.classes);
+    setScheduleImportErrors(result.errors);
+
+    if (result.classes.length === 0) {
+      setScheduleImportMessage("没有可导入的课程。");
+      return;
+    }
+
+    const stamp = Date.now();
+    setFixedClasses((prev) => [
+      ...prev,
+      ...result.classes.map((item, index) => ({
+        ...item,
+        id: `nju-import-${stamp}-${index}`,
+      })),
+    ]);
+    setScheduleImportMessage(`已导入 ${result.classes.length} 门课程到固定课表。`);
   }
 
   const fixedClassCount = fixedClasses.length;
@@ -324,6 +385,63 @@ function SchedulePage({ user = null, onLogout } = {}) {
         </section>
 
         <aside style={sidePanelStyle(colors)}>
+          <section style={panelCardStyle(colors)}>
+            <h2 style={panelTitleStyle(colors)}>南京大学课表导入</h2>
+            <p style={panelTextStyle(colors)}>
+              跳转官方教服平台登录，NoteWhale 不接触也不保存账号密码。
+            </p>
+            <div style={importActionRowStyle}>
+              <button type="button" onClick={openNjuTeachingPortal} style={primaryButtonStyle(colors)}>
+                打开教服平台
+              </button>
+              <button type="button" onClick={previewImportedSchedule} style={outlineButtonStyle(colors)}>
+                解析预览
+              </button>
+            </div>
+            <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
+              <span>粘贴课表 / 导入 CSV、TXT</span>
+              <input
+                type="file"
+                accept=".csv,.txt,.tsv"
+                onChange={readScheduleImportFile}
+                style={fileInputStyle(colors)}
+              />
+              <textarea
+                value={scheduleImportText}
+                onChange={(event) => setScheduleImportText(event.target.value)}
+                placeholder="示例：高等数学,周一,1-2节,仙林校区 教学楼101"
+                style={textareaStyle(colors)}
+              />
+            </label>
+            <p style={importMessageStyle(colors)}>{scheduleImportMessage}</p>
+            {scheduleImportPreview.length > 0 && (
+              <div style={importPreviewStyle(colors)}>
+                {scheduleImportPreview.slice(0, 4).map((item, index) => (
+                  <div key={`${item.title}-${item.day}-${index}`} style={importPreviewItemStyle(colors)}>
+                    <strong>{item.title}</strong>
+                    <span>
+                      {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime}
+                    </span>
+                    <span>{item.location || "未填写地点"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {scheduleImportErrors.length > 0 && (
+              <p style={importErrorStyle(colors)}>
+                {scheduleImportErrors.slice(0, 2).join("；")}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={importScheduleClasses}
+              disabled={scheduleImportText.trim().length === 0}
+              style={primaryButtonStyle(colors, scheduleImportText.trim().length === 0)}
+            >
+              导入到固定课表
+            </button>
+          </section>
+
           <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>录入固定课表</h2>
             <p style={panelTextStyle(colors)}>
@@ -786,17 +904,94 @@ function inputStyle(colors) {
   };
 }
 
-function primaryButtonStyle(colors) {
+const importActionRowStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "10px",
+  marginTop: "14px",
+};
+
+function fileInputStyle(colors) {
+  return {
+    border: `1px dashed ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.card,
+    color: colors.text,
+    padding: "10px",
+    fontFamily: "inherit",
+    fontSize: "12px",
+  };
+}
+
+function textareaStyle(colors) {
+  return {
+    minHeight: "98px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.panel,
+    color: colors.title,
+    padding: "10px 11px",
+    fontFamily: "inherit",
+    fontSize: "13px",
+    lineHeight: 1.55,
+    outline: "none",
+    resize: "vertical",
+  };
+}
+
+function importMessageStyle(colors) {
+  return {
+    margin: "10px 0 0",
+    color: colors.text,
+    fontSize: "12px",
+    lineHeight: 1.6,
+  };
+}
+
+function importErrorStyle(colors) {
+  return {
+    margin: "8px 0 12px",
+    color: colors.warningText,
+    fontSize: "12px",
+    lineHeight: 1.6,
+  };
+}
+
+function importPreviewStyle(colors) {
+  return {
+    display: "grid",
+    gap: "8px",
+    margin: "12px 0",
+    borderTop: `1px solid ${colors.border}`,
+    paddingTop: "12px",
+  };
+}
+
+function importPreviewItemStyle(colors) {
+  return {
+    display: "grid",
+    gap: "4px",
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "12px",
+    padding: "10px",
+    color: colors.text,
+    fontSize: "12px",
+  };
+}
+
+function primaryButtonStyle(colors, disabled = false) {
   return {
     height: "40px",
     border: "none",
     borderRadius: "10px",
     background: colors.active,
     color: "#FFFFFF",
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
     fontWeight: 900,
     fontFamily: "inherit",
     padding: "0 14px",
+    opacity: disabled ? 0.55 : 1,
   };
 }
 
