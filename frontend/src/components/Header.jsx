@@ -417,6 +417,12 @@ function Header({
             detail="课程、DDL、资料文件的保存状态"
             onClick={() => handleOpenDataStatus("sync")}
           />
+          <MenuItem
+            theme={theme}
+            title="桌面服务"
+            detail="查看本地后端和桌面桥接状态"
+            onClick={() => handleOpenDataStatus("desktop")}
+          />
 
           <div style={menuSectionLabelStyle(theme)}>账号</div>
           <MenuItem

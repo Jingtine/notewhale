@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { changePassword, updateProfile } from "../api/authApi";
 import AiModelSettingsPanel from "./AiModelSettingsPanel";
@@ -38,6 +38,7 @@ function GlobalSettingsModal({
   const displayName = user?.name || "NoteWhale 用户";
   const accountText = user?.account || user?.email || "本地体验账号";
   const isOnline = Boolean(apiStatus.online);
+  const desktopService = useDesktopBackendStatus();
   const [activeSection, setActiveSection] = useState(initialSection);
   const navItems = [
     {
@@ -54,6 +55,11 @@ function GlobalSettingsModal({
       id: "sync",
       label: "同步与数据",
       detail: isOnline ? "后端 API 在线" : "后端连接异常",
+    },
+    {
+      id: "desktop",
+      label: "桌面服务",
+      detail: desktopService.available ? desktopService.label : "仅桌面版启用",
     },
     {
       id: "product",
@@ -158,6 +164,14 @@ function GlobalSettingsModal({
               </section>
             )}
 
+            {activeSection === "desktop" && (
+              <DesktopServiceSection
+                colors={colors}
+                apiStatus={apiStatus}
+                desktopService={desktopService}
+              />
+            )}
+
             {activeSection === "product" && (
               <section style={sectionStyle(colors)}>
                 <h3 style={sectionTitleStyle(colors)}>产品能力</h3>
@@ -172,6 +186,144 @@ function GlobalSettingsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function useDesktopBackendStatus() {
+  const [status, setStatus] = useState({
+    available: false,
+    state: "browser",
+    label: "网页版",
+    message: "当前运行在浏览器中，后端服务需要手动启动或使用线上 API。",
+    url: "",
+    managed: false,
+  });
+
+  useEffect(() => {
+    const bridge =
+      typeof window !== "undefined" ? window.notewhaleDesktop : null;
+
+    if (typeof bridge?.getBackendStatus !== "function") {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function refresh() {
+      try {
+        const result = await bridge.getBackendStatus();
+
+        if (!cancelled) {
+          setStatus(normalizeDesktopBackendStatus(result));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus({
+            available: true,
+            state: "error",
+            label: "状态读取失败",
+            message: error?.message || "无法读取桌面服务状态。",
+            url: "",
+            managed: false,
+          });
+        }
+      }
+    }
+
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return status;
+}
+
+function normalizeDesktopBackendStatus(result = {}) {
+  const state = result.state || "unknown";
+  const labels = {
+    ready: "运行中",
+    starting: "启动中",
+    stopping: "关闭中",
+    timeout: "启动超时",
+    missing: "环境缺失",
+    stopped: "已停止",
+    error: "异常",
+    unknown: "未知",
+  };
+
+  return {
+    available: true,
+    state,
+    label: labels[state] || labels.unknown,
+    message: result.message || "桌面服务状态未知。",
+    url: result.url || "http://127.0.0.1:8000",
+    managed: Boolean(result.managed),
+  };
+}
+
+function DesktopServiceSection({ colors, apiStatus, desktopService }) {
+  const tone =
+    desktopService.state === "ready"
+      ? "success"
+      : desktopService.state === "starting" || desktopService.state === "browser"
+        ? "default"
+        : "warning";
+
+  return (
+    <section style={sectionStyle(colors)}>
+      <div style={sectionHeaderStyle}>
+        <div>
+          <h3 style={sectionTitleStyle(colors)}>桌面服务</h3>
+          <p style={sectionTextStyle(colors)}>
+            桌面版会自动启动本地后端，用于账号、课程、DDL、资料和南京大学课表导入等功能。
+          </p>
+        </div>
+        <span style={desktopStatusPillStyle(colors, tone)}>{desktopService.label}</span>
+      </div>
+
+      <div style={summaryGridStyle}>
+        <SummaryCard
+          label="桌面桥接"
+          value={desktopService.available ? "已启用" : "未启用"}
+          detail={desktopService.available ? "Electron preload 可用" : "当前是浏览器环境"}
+          colors={colors}
+          tone={desktopService.available ? "success" : "default"}
+        />
+        <SummaryCard
+          label="本地后端"
+          value={desktopService.label}
+          detail={desktopService.message}
+          colors={colors}
+          tone={tone === "success" ? "success" : tone === "warning" ? "warning" : "default"}
+        />
+        <SummaryCard
+          label="启动方式"
+          value={desktopService.managed ? "桌面托管" : "外部服务"}
+          detail={desktopService.available ? "退出桌面时会收尾托管进程" : "浏览器不管理后端进程"}
+          colors={colors}
+        />
+      </div>
+
+      <InfoLine
+        label="本地 API"
+        value={desktopService.url || apiStatus.apiBaseUrl || "http://127.0.0.1:8000"}
+        colors={colors}
+      />
+      <InfoLine
+        label="当前状态"
+        value={desktopService.message}
+        colors={colors}
+      />
+      <InfoLine
+        label="线上/浏览器 API"
+        value={apiStatus.online ? apiStatus.apiBaseUrl || "已连接" : apiStatus.message || "未连接"}
+        colors={colors}
+      />
+    </section>
   );
 }
 
@@ -780,6 +932,26 @@ function closeButtonStyle(colors) {
     color: colors.text,
     cursor: "pointer",
     fontSize: "22px",
+  };
+}
+
+function desktopStatusPillStyle(colors, tone) {
+  const color =
+    tone === "success"
+      ? colors.success
+      : tone === "warning"
+        ? colors.warning
+        : colors.active;
+
+  return {
+    flexShrink: 0,
+    color,
+    background: `${color}14`,
+    border: `1px solid ${color}24`,
+    borderRadius: "999px",
+    padding: "7px 11px",
+    fontSize: "12px",
+    fontWeight: 900,
   };
 }
 
