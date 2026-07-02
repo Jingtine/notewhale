@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Footer from "../components/Footer";
 import {
@@ -9,6 +9,14 @@ import {
   recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
 import { getFolders as getBackendFolders } from "../api/folderApi";
+import {
+  readFirstStorageArray,
+  readStorageArray,
+  readStorageBoolean,
+  writeStorageArray,
+  writeStorageValue,
+} from "../data/userStorage";
+import { mapBackendDdl } from "../data/learningItemMappers";
 
 
 function toDatetimeLocalValue(value) {
@@ -39,19 +47,15 @@ function DDLPage({ user = null, onLogout } = {}) {
   const [syncMessage, setSyncMessage] = useState("正在同步 DDL");
 
   const [ddls, setDdls] = useState(() =>
-    JSON.parse(localStorage.getItem("ddls") || "[]")
+    readStorageArray("ddls", [])
   );
 
   const [folders, setFolders] = useState(() =>
-    JSON.parse(
-      localStorage.getItem("courseFolders") ||
-        localStorage.getItem("folders") ||
-        "[]"
-    )
+    readFirstStorageArray(["courseFolders", "folders"], [])
   );
 
   const [darkMode, setDarkMode] = useState(() =>
-    JSON.parse(localStorage.getItem("darkMode") || "false")
+    readStorageBoolean("darkMode", false)
   );
 
   const [tab, setTab] = useState("全部");
@@ -86,7 +90,7 @@ function DDLPage({ user = null, onLogout } = {}) {
   };
 
   useEffect(() => {
-    localStorage.setItem("darkMode", JSON.stringify(darkMode));
+    writeStorageValue("darkMode", darkMode);
   }, [darkMode]);
 
   useEffect(() => {
@@ -132,7 +136,7 @@ function DDLPage({ user = null, onLogout } = {}) {
     setDdls(nextDdls);
 
     const localOnlyDdls = nextDdls.filter((ddl) => !ddl.backendSynced);
-    localStorage.setItem("ddls", JSON.stringify(localOnlyDdls));
+    writeStorageArray("ddls", localOnlyDdls);
   }
 
   function parseDate(date) {
@@ -157,7 +161,7 @@ function DDLPage({ user = null, onLogout } = {}) {
     buttonBg: darkMode ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.82)",
   };
 
-  function getStatus(ddl) {
+  const getStatus = useCallback((ddl) => {
     if (ddl.completed) {
       return { text: "已完成", color: "#10B981", type: "done" };
     }
@@ -188,7 +192,7 @@ function DDLPage({ user = null, onLogout } = {}) {
     }
 
     return { text: `剩余 ${days} 天`, color: "#10B981", type: "normal" };
-  }
+  }, [colors.muted]);
 
   const sortedDdls = useMemo(
     () => [...ddls].sort((a, b) => parseDate(a.date) - parseDate(b.date)),
@@ -267,7 +271,7 @@ function DDLPage({ user = null, onLogout } = {}) {
         const status = getStatus(ddl);
         return status.type === "today" || status.type === "upcoming";
       }),
-    [sortedDdls]
+    [sortedDdls, getStatus]
   );
 
   async function completeDDL(id) {
@@ -810,7 +814,6 @@ function DDLPage({ user = null, onLogout } = {}) {
 }
 
 function DDLTopBar({
-  colors,
   darkMode,
   setDarkMode,
   searchText,
@@ -1915,22 +1918,6 @@ function mapBackendCourse(course) {
   };
 }
 
-function mapBackendDdl(ddl) {
-  return {
-    ...ddl,
-    id: `api-ddl-${ddl.id}`,
-    backendId: ddl.id,
-    courseId: ddl.courseId ? `api-${ddl.courseId}` : null,
-    backendCourseId: ddl.courseId || null,
-    courseName: ddl.courseName || "未归属课程",
-    platform: ddl.platform || "",
-    note: ddl.note || "",
-    completed: Boolean(ddl.completed),
-    source: ddl.source || "后端同步",
-    backendSynced: true,
-  };
-}
-
 function SmallLabel({ colors, children }) {
   return (
     <div
@@ -2004,23 +1991,6 @@ function smallButtonStyle(darkMode, type) {
     fontSize: "13px",
     fontFamily: "inherit",
     fontWeight: 800,
-  };
-}
-
-function topIconButtonStyle(colors) {
-  return {
-    width: "46px",
-    height: "46px",
-    borderRadius: "16px",
-    border: "none",
-    background: "transparent",
-    color: colors.text,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    fontSize: "22px",
-    fontFamily: "inherit",
   };
 }
 

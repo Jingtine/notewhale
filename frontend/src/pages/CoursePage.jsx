@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Footer from "../components/Footer";
 import {
   getNotes as getBackendNotes,
+  getAiStatus,
   createNote as createBackendNote,
   deleteNote as deleteBackendNote,
   generateNote as generateBackendNote,
@@ -22,7 +23,25 @@ import {
 } from "../api/ddlApi";
 
 import { getCourses as getBackendCourses } from "../api/courseApi";
+import {
+  readStorageBoolean,
+  readStorageArray,
+  readUserStorageArray,
+  writeStorageArray,
+  writeStorageValue,
+} from "../data/userStorage";
+import { mapBackendDdl, mapBackendNote } from "../data/learningItemMappers";
+import {
+  createLocalResource,
+  getResourceTextStatus,
+  isResourceReadyForAi,
+  isResourceSynced,
+  mapBackendResource,
+  stripTransientResourceFields,
+} from "../data/resourceMappers";
 
+
+const NOTE_STYLE_OPTIONS = ["复习型", "提纲型", "考点型", "精简型"];
 
 
 function toDatetimeLocalValue(value) {
@@ -46,46 +65,16 @@ function toDatetimeLocalValue(value) {
   return "";
 }
 
-function getUserStorageKeyForCoursePage(user, key) {
-  const rawUserId =
-    user?.id ||
-    user?.account ||
-    user?.email ||
-    localStorage.getItem("notewhale_current_user_id") ||
-    "guest";
-
-  const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `notewhale_user_${safeUserId}_${key}`;
-}
-
-function readCoursePageArray(user, key, fallback = []) {
-  try {
-    const scopedValue = localStorage.getItem(getUserStorageKeyForCoursePage(user, key));
-    if (scopedValue) {
-      const parsed = JSON.parse(scopedValue);
-      return Array.isArray(parsed) ? parsed : fallback;
-    }
-
-    const legacyValue = localStorage.getItem(key);
-    if (!legacyValue) return fallback;
-
-    const parsed = JSON.parse(legacyValue);
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function CoursePage({ user = null, onLogout } = {}) {
   const navigate = useNavigate();
   const { id } = useParams();
 
   const [darkMode, setDarkMode] = useState(() =>
-    JSON.parse(localStorage.getItem("darkMode") || "false")
+    readStorageBoolean("darkMode", false)
   );
 
   useEffect(() => {
-    localStorage.setItem("darkMode", JSON.stringify(darkMode));
+    writeStorageValue("darkMode", darkMode);
   }, [darkMode]);
 
   const [activeTab, setActiveTab] = useState("resources");
@@ -93,18 +82,21 @@ function CoursePage({ user = null, onLogout } = {}) {
   const [courseSearchText, setCourseSearchText] = useState("");
 
   const [ddls, setDdls] = useState(() =>
-    JSON.parse(localStorage.getItem("ddls") || "[]")
+    readStorageArray("ddls", [])
   );
 
   const [notes, setNotes] = useState(() =>
-    JSON.parse(localStorage.getItem("notes") || "[]")
+    readStorageArray("notes", [])
   );
 
   const [resources, setResources] = useState(() =>
-    JSON.parse(localStorage.getItem("resources") || "[]")
+    readStorageArray("resources", [])
   );
 
   const [resourceUploadStatus, setResourceUploadStatus] = useState("");
+  const [aiNoteStatus, setAiNoteStatus] = useState("");
+  const [aiNoteGeneratingResourceId, setAiNoteGeneratingResourceId] = useState(null);
+  const [aiNoteStyle, setAiNoteStyle] = useState(NOTE_STYLE_OPTIONS[0]);
 
   const [backendCourses, setBackendCourses] = useState([]);
   const [backendCourseLoading, setBackendCourseLoading] = useState(false);
@@ -112,7 +104,9 @@ function CoursePage({ user = null, onLogout } = {}) {
   const isBackendRoute = String(id).startsWith("api-");
   const backendRouteId = isBackendRoute ? String(id).replace(/^api-/, "") : null;
 
-  const folders = readCoursePageArray(user, "folders", []);
+  const folders = readUserStorageArray(user, "folders", [], {
+    legacyKey: "folders",
+  });
 
   const allCourses = folders.flatMap(
     (folder) => folder.courses || folder.items || []
@@ -122,9 +116,10 @@ function CoursePage({ user = null, onLogout } = {}) {
     if (!isBackendRoute) return;
 
     let alive = true;
-    setBackendCourseLoading(true);
 
     async function loadBackendCourse() {
+      setBackendCourseLoading(true);
+
       try {
         const data = await getBackendCourses();
         if (!alive) return;
@@ -179,7 +174,9 @@ function CoursePage({ user = null, onLogout } = {}) {
         if (!alive) return;
 
         const backendResources = Array.isArray(data)
-          ? data.map(mapBackendResource)
+          ? data.map((resource) =>
+              mapBackendResource(resource, { getFileUrl: getResourceFileUrl })
+            )
           : [];
 
         setResources((prevResources) => {
@@ -231,16 +228,20 @@ function CoursePage({ user = null, onLogout } = {}) {
     ? backendCourses.find((course) => String(course.id) === String(backendRouteId))
     : null;
 
-  const course = localCourse ||
-    (backendCourse
-      ? {
-          id: `api-${backendCourse.id}`,
-          backendId: backendCourse.id,
-          title: backendCourse.title,
-          starred: Boolean(backendCourse.starred),
-          backendSynced: true,
-        }
-      : null);
+  const course = useMemo(
+    () =>
+      localCourse ||
+      (backendCourse
+        ? {
+            id: `api-${backendCourse.id}`,
+            backendId: backendCourse.id,
+            title: backendCourse.title,
+            starred: Boolean(backendCourse.starred),
+            backendSynced: true,
+          }
+        : null),
+    [localCourse, backendCourse]
+  );
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [schedulePreview, setSchedulePreview] = useState("");
@@ -257,11 +258,6 @@ function CoursePage({ user = null, onLogout } = {}) {
   const [generatedNoteTitle, setGeneratedNoteTitle] = useState("");
   const [generatedNoteContent, setGeneratedNoteContent] = useState("");
   const [generatedFromResource, setGeneratedFromResource] = useState(null);
-
-  const [showNoteEditor, setShowNoteEditor] = useState(false);
-  const [editingNote, setEditingNote] = useState(null);
-  const [editingNoteTitle, setEditingNoteTitle] = useState("");
-  const [editingNoteContent, setEditingNoteContent] = useState("");
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmInfo, setConfirmInfo] = useState(null);
@@ -426,13 +422,13 @@ function CoursePage({ user = null, onLogout } = {}) {
   function saveDdls(nextDdls) {
     setDdls(nextDdls);
     const localOnlyDdls = nextDdls.filter((ddl) => !ddl.backendSynced);
-    localStorage.setItem("ddls", JSON.stringify(localOnlyDdls));
+    writeStorageArray("ddls", localOnlyDdls);
   }
 
   function saveNotes(nextNotes) {
     setNotes(nextNotes);
     const localOnlyNotes = nextNotes.filter((note) => !note.backendSynced);
-    localStorage.setItem("notes", JSON.stringify(localOnlyNotes));
+    writeStorageArray("notes", localOnlyNotes);
   }
 
   function saveResources(nextResources) {
@@ -440,9 +436,9 @@ function CoursePage({ user = null, onLogout } = {}) {
       (resource) => !resource.backendSynced
     );
 
-    const safeResources = localOnlyResources.map(({ objectUrl, dataUrl, ...rest }) => rest);
+    const safeResources = localOnlyResources.map(stripTransientResourceFields);
     setResources(nextResources);
-    localStorage.setItem("resources", JSON.stringify(safeResources));
+    writeStorageArray("resources", safeResources);
   }
 
   async function saveSchedule() {
@@ -508,7 +504,9 @@ function CoursePage({ user = null, onLogout } = {}) {
             courseName: course.title,
           });
 
-          savedResources.push(mapBackendResource(saved));
+          savedResources.push(
+            mapBackendResource(saved, { getFileUrl: getResourceFileUrl })
+          );
         }
 
         saveResources([...resources, ...savedResources]);
@@ -524,18 +522,7 @@ function CoursePage({ user = null, onLogout } = {}) {
       }
     }
 
-    const newResources = files.map((file) => ({
-      id: `${Date.now()}-${file.name}`,
-      name: file.name,
-      type: getFileType(file.name),
-      size: file.size,
-      mimeType: file.type || "application/octet-stream",
-      objectUrl: URL.createObjectURL(file),
-      courseId: course.id,
-      courseName: course.title,
-      createdAt: Date.now(),
-      backendSynced: false,
-    }));
+    const newResources = files.map((file) => createLocalResource(file, course));
 
     saveResources([...resources, ...newResources]);
     setResourceUploadStatus(`已临时添加 ${newResources.length} 个文件。本地文件可在当前浏览器会话中查看。`);
@@ -566,7 +553,14 @@ function CoursePage({ user = null, onLogout } = {}) {
   }
 
   async function generateNoteFromResource(resource = null) {
-    const targetResource = resource || courseResources[0] || null;
+    if (aiNoteGeneratingResourceId) return;
+
+    const targetResource =
+      resource ||
+      courseResources.find(isResourceReadyForAi) ||
+      courseResources.find(isResourceSynced) ||
+      courseResources[0] ||
+      null;
 
     if (!course) return;
 
@@ -582,26 +576,81 @@ function CoursePage({ user = null, onLogout } = {}) {
       return;
     }
 
-    if (!targetResource.backendSynced || !targetResource.backendId) {
+    if (!isResourceSynced(targetResource)) {
       alert("这份资料还没有同步到后端，无法读取正文生成 AI 笔记。请重新上传资料。");
       return;
     }
 
+    if (!isResourceReadyForAi(targetResource)) {
+      const textStatus = getResourceTextStatus(targetResource);
+      alert(`这份资料暂时不能生成 AI 笔记：${textStatus.label}。${textStatus.detail || "请换用可复制文字的 PDF，或等待后续 OCR 功能。"}`);
+      return;
+    }
+
+    const generatingResourceId =
+      targetResource.id || targetResource.backendId || targetResource.name || "resource";
+    setAiNoteGeneratingResourceId(generatingResourceId);
+    setAiNoteStatus("正在检查文本模型配置...");
+
     try {
+      const aiStatus = await getAiStatus();
+
+      if (!aiStatus?.text?.configured) {
+        alert(aiStatus?.text?.message || "文本模型未配置完整，请检查 backend/.env。");
+        return;
+      }
+
+      const modelLabel = aiStatus.text.model ? `（${aiStatus.text.model}）` : "";
+      const textLength = Number(targetResource.extractedTextLength || 0);
+      const longDocumentHint =
+        textLength > 6500 ? "长文档将先分段整理，如输出中断会自动续写。" : "这可能需要几十秒。";
+      setAiNoteStatus(`正在读取「${targetResource.name || "课程资料"}」并调用文本模型${modelLabel}。${longDocumentHint}`);
+
       const generated = await generateBackendNote({
         courseId: course.backendId,
         courseName: course.title,
         resourceName: targetResource.name || "课程资料",
         resourceId: targetResource.backendId,
-        noteStyle: "复习型",
+        noteStyle: aiNoteStyle,
       });
 
-      setGeneratedNoteTitle(generated.title || `${course.title} · AI资料笔记`);
-      setGeneratedNoteContent(generated.content || "");
-      setShowGeneratedNoteModal(true);
+      const generatedTitle = generated.title || `${course.title} · AI资料笔记`;
+      const generatedContent = generated.content || "";
+
+      setAiNoteStatus("AI 笔记已生成，正在保存为草稿...");
+
+      try {
+        const savedNote = await createBackendNote({
+          title: generatedTitle,
+          content: generatedContent,
+          courseId: course.backendId,
+          courseName: course.title,
+          source: targetResource.name || "课程资料",
+          aiGenerated: true,
+        });
+
+        const mappedNote = {
+          ...mapBackendNote(savedNote),
+          sourceResourceId: targetResource.id || null,
+          sourceResourceName: targetResource.name || "课程资料",
+          sourceResourceType: targetResource.type || "资料",
+        };
+        saveNotes([...notes, mappedNote]);
+        navigate(`/course/${id}/note/${mappedNote.id}`);
+        return;
+      } catch (saveError) {
+        setGeneratedNoteTitle(generatedTitle);
+        setGeneratedNoteContent(generatedContent);
+        setGeneratedFromResource(targetResource);
+        setShowGeneratedNoteModal(true);
+        alert(saveError.message || "AI 笔记已生成，但自动保存草稿失败。请在预览中手动保存。");
+      }
       return;
     } catch (error) {
       alert(error.message || "AI 资料笔记生成失败，请检查文本模型配置和资料解析依赖。");
+    } finally {
+      setAiNoteGeneratingResourceId(null);
+      setAiNoteStatus("");
     }
   }
 
@@ -705,50 +754,6 @@ function CoursePage({ user = null, onLogout } = {}) {
     navigate(`/course/${id}/note/${newNote.id}`);
   }
 
-  function saveNoteEditor() {
-    if (!editingNoteTitle.trim() || !course) return;
-
-    if (editingNote) {
-      saveNotes(
-        notes.map((note) =>
-          note.id === editingNote.id
-            ? {
-                ...note,
-                title: editingNoteTitle.trim(),
-                content: editingNoteContent.trim(),
-                updatedAt: Date.now(),
-              }
-            : note
-        )
-      );
-    } else {
-      const newNote = {
-        id: Date.now(),
-        title: editingNoteTitle.trim(),
-        content: editingNoteContent.trim(),
-        courseId: course.id,
-        courseName: course.title,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        aiGenerated: false,
-        source: "手动记录",
-        sourceResourceId: null,
-        sourceResourceName: "手动记录",
-        sourceResourceType: "笔记",
-      };
-      saveNotes([...notes, newNote]);
-    }
-
-    closeNoteEditor();
-  }
-
-  function closeNoteEditor() {
-    setShowNoteEditor(false);
-    setEditingNote(null);
-    setEditingNoteTitle("");
-    setEditingNoteContent("");
-  }
-
   async function completeDDL(ddlId) {
     const target = ddls.find((ddl) => String(ddl.id) === String(ddlId));
     if (!target) return;
@@ -825,7 +830,6 @@ function CoursePage({ user = null, onLogout } = {}) {
       }
 
       saveNotes(notes.filter((note) => note.id !== confirmInfo.target.id));
-      closeNoteEditor();
     }
 
     if (confirmInfo.type === "ddl") {
@@ -996,6 +1000,10 @@ function CoursePage({ user = null, onLogout } = {}) {
                   onDelete={(resource) => askDelete("resource", resource)}
                   uploadResources={uploadResources}
                   uploadStatus={resourceUploadStatus}
+                  aiNoteStatus={aiNoteStatus}
+                  aiNoteGeneratingResourceId={aiNoteGeneratingResourceId}
+                  aiNoteStyle={aiNoteStyle}
+                  setAiNoteStyle={setAiNoteStyle}
                 />
               )}
 
@@ -1708,16 +1716,12 @@ function courseMenuItemStyle(theme) {
 }
 
 function CourseHeader({
-  course,
   colors,
   activeTab,
   setActiveTab,
   onOpenSchedule,
   onAddNote,
   uploadResources,
-  activeDdls,
-  courseNotes,
-  courseResources,
 }) {
   const headerResourceInputRef = useRef(null);
 
@@ -1852,8 +1856,32 @@ function SideFilter({ label, active, colors, onClick }) {
   );
 }
 
-function ResourceTab({ resources, notes, colors, searchText = "", onView, onGenerateNote, onDelete, uploadResources, uploadStatus = "" }) {
+function ResourceTab({
+  resources,
+  notes,
+  colors,
+  searchText = "",
+  onView,
+  onGenerateNote,
+  onDelete,
+  uploadResources,
+  uploadStatus = "",
+  aiNoteStatus = "",
+  aiNoteGeneratingResourceId = null,
+  aiNoteStyle = NOTE_STYLE_OPTIONS[0],
+  setAiNoteStyle,
+}) {
   const resourceInputRef = useRef(null);
+  const aiNoteGenerating = Boolean(aiNoteGeneratingResourceId);
+  const hasAiReadyResource = resources.some(isResourceReadyForAi);
+  const hasSyncedResource = resources.some(isResourceSynced);
+  const aiButtonDisabled = resources.length === 0 || !hasAiReadyResource || aiNoteGenerating;
+  const resourceSyncHint =
+    resources.length > 0 && !hasAiReadyResource
+      ? hasSyncedResource
+        ? "当前资料没有可读取正文。扫描版 PDF 或图片资料需要 OCR 后才能生成 AI 笔记。"
+        : "当前资料只是本地临时记录。请确认后端在线后重新上传，上传成功后才能生成 AI 笔记。"
+      : "";
 
   return (
     <div style={contentCardStyle(colors)}>
@@ -1866,12 +1894,29 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
         </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <label style={selectWrapStyle(colors)}>
+            <span style={{ color: colors.text, fontSize: "13px", fontWeight: 700 }}>风格</span>
+            <select
+              value={aiNoteStyle}
+              onChange={(event) => setAiNoteStyle(event.target.value)}
+              style={selectStyle(colors)}
+              disabled={aiNoteGenerating}
+            >
+              {NOTE_STYLE_OPTIONS.map((style) => (
+                <option key={style} value={style}>
+                  {style}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <button
             onClick={() => onGenerateNote(null)}
-            style={secondaryButton(colors)}
-            disabled={resources.length === 0}
+            style={disabledButtonStyle(secondaryButton(colors), aiButtonDisabled)}
+            disabled={aiButtonDisabled}
+            title={resourceSyncHint || undefined}
           >
-            AI 生成笔记
+            {aiNoteGenerating ? "生成中..." : "AI 生成笔记"}
           </button>
 
           <button
@@ -1892,7 +1937,7 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
         </div>
       </div>
 
-      {uploadStatus && (
+      {(uploadStatus || aiNoteStatus || resourceSyncHint) && (
         <div
           style={{
             marginBottom: "16px",
@@ -1905,7 +1950,7 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
             lineHeight: 1.7,
           }}
         >
-          {uploadStatus}
+          {aiNoteStatus || resourceSyncHint || uploadStatus}
         </div>
       )}
 
@@ -1922,6 +1967,7 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
               resource={resource}
               relatedNotes={getNotesByResource(notes, resource)}
               colors={colors}
+              aiNoteGeneratingResourceId={aiNoteGeneratingResourceId}
               onView={onView}
               onGenerateNote={onGenerateNote}
               onDelete={onDelete}
@@ -1933,7 +1979,23 @@ function ResourceTab({ resources, notes, colors, searchText = "", onView, onGene
   );
 }
 
-function ResourceItem({ resource, relatedNotes = [], colors, onView, onGenerateNote, onDelete }) {
+function ResourceItem({
+  resource,
+  relatedNotes = [],
+  colors,
+  aiNoteGeneratingResourceId = null,
+  onView,
+  onGenerateNote,
+  onDelete,
+}) {
+  const resourceGeneratingId = resource.id || resource.backendId || resource.name || "resource";
+  const isGenerating = String(aiNoteGeneratingResourceId || "") === String(resourceGeneratingId);
+  const hasGeneratingResource = Boolean(aiNoteGeneratingResourceId);
+  const isSynced = isResourceSynced(resource);
+  const canGenerateNote = isResourceReadyForAi(resource);
+  const aiButtonDisabled = hasGeneratingResource || !canGenerateNote;
+  const textStatus = getResourceTextStatus(resource);
+
   return (
     <div style={compactRowStyle(colors)}>
       <div style={{ display: "flex", gap: "14px", minWidth: 0, flex: 1 }}>
@@ -1955,7 +2017,13 @@ function ResourceItem({ resource, relatedNotes = [], colors, onView, onGenerateN
           <p style={{ margin: "6px 0 0", color: colors.text, fontSize: "13px" }}>
             {formatFileSize(resource.size)} · {new Date(resource.createdAt).toLocaleDateString()}
             {relatedNotes.length > 0 ? ` · 已生成 ${relatedNotes.length} 条笔记` : ""}
+            {!isSynced ? " · 本地临时资料" : ""}
           </p>
+
+          <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <StatusTag colors={colors} text={textStatus.label} tone={textStatus.tone} />
+            {textStatus.detail && <span style={{ color: colors.muted, fontSize: "12px" }}>{textStatus.detail}</span>}
+          </div>
         </div>
       </div>
 
@@ -1963,8 +2031,14 @@ function ResourceItem({ resource, relatedNotes = [], colors, onView, onGenerateN
         <button onClick={() => onView(resource)} style={ghostButton(colors)}>
           查看
         </button>
-        <button onClick={() => onGenerateNote(resource)} style={miniButton(colors.active)}>
-          AI笔记
+        <button
+          onClick={() => onGenerateNote(resource)}
+          style={disabledButtonStyle(miniButton(colors.active), aiButtonDisabled)}
+          disabled={aiButtonDisabled}
+          aria-busy={isGenerating}
+          title={!canGenerateNote ? textStatus.detail : undefined}
+        >
+          {isGenerating ? "生成中" : canGenerateNote ? "AI笔记" : isSynced ? "无文字" : "未同步"}
         </button>
         <button onClick={() => onDelete(resource)} style={miniButton(colors.danger)}>
           删除
@@ -2211,7 +2285,7 @@ function SettingsTab({
         }}
       >
         <div style={settingPanelStyle(colors)}>
-          <div style={settingPanelHeaderStyle(colors)}>
+          <div style={settingPanelHeaderStyle()}>
             <div>
               <h3 style={settingTitleStyle(colors)}>课程信息</h3>
               <p style={settingSubtitleStyle(colors)}>
@@ -2240,7 +2314,7 @@ function SettingsTab({
         </div>
 
         <div style={settingPanelStyle(colors)}>
-          <div style={settingPanelHeaderStyle(colors)}>
+          <div style={settingPanelHeaderStyle()}>
             <div>
               <h3 style={settingTitleStyle(colors)}>项目状态</h3>
               <p style={settingSubtitleStyle(colors)}>
@@ -2405,7 +2479,16 @@ function SettingStatCard({ label, value, unit, colors }) {
   );
 }
 
-function StatusTag({ text, colors }) {
+function StatusTag({ text, colors, tone = "active" }) {
+  const toneColor =
+    tone === "success"
+      ? colors.success
+      : tone === "warning"
+        ? colors.warning
+        : tone === "muted"
+          ? colors.text
+          : colors.active;
+
   return (
     <div
       style={{
@@ -2413,7 +2496,7 @@ function StatusTag({ text, colors }) {
         border: `1px solid ${colors.border}`,
         borderRadius: "999px",
         padding: "9px 12px",
-        color: colors.active,
+        color: toneColor,
         fontSize: "13px",
         fontWeight: 700,
       }}
@@ -2432,7 +2515,7 @@ function settingPanelStyle(colors) {
   };
 }
 
-function settingPanelHeaderStyle(colors) {
+function settingPanelHeaderStyle() {
   return {
     display: "flex",
     alignItems: "flex-start",
@@ -2496,7 +2579,7 @@ function ScheduleModal({
     <ModalShell darkMode={darkMode} colors={colors} width="900px">
       <h2 style={modalTitleStyle(colors)}>新建日程</h2>
       <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: "28px" }}>
-        <div style={uploadBoxStyle(colors, darkMode)}>
+        <div style={uploadBoxStyle(colors)}>
           {schedulePreview ? (
             <img src={schedulePreview} alt="DDL截图预览" style={previewImageStyle} />
           ) : (
@@ -2613,36 +2696,6 @@ function NotePreviewModal({ darkMode, colors, title, setTitle, content, setConte
   );
 }
 
-function NoteEditorModal({ darkMode, colors, note, sourceName, title, setTitle, content, setContent, onCancel, onSave, onExport, onDelete }) {
-  return (
-    <ModalShell darkMode={darkMode} colors={colors} width="820px">
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "18px", alignItems: "center", marginBottom: "18px" }}>
-        <h2 style={{ ...modalTitleStyle(colors), margin: 0 }}>{note ? "查看 / 编辑笔记" : "新建笔记"}</h2>
-        <button onClick={onCancel} style={closeButtonStyle(colors)}>×</button>
-      </div>
-      {note && sourceName && (
-        <div style={{ marginBottom: "14px", color: colors.text, fontSize: "13px" }}>
-          来源：<span style={{ color: colors.title, fontWeight: 700 }}>{sourceName}</span>
-        </div>
-      )}
-      <SmallLabel colors={colors}>标题</SmallLabel>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="笔记标题" style={inputStyle(darkMode)} />
-      <SmallLabel colors={colors}>正文</SmallLabel>
-      <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="记录课堂重点、作业思路或复习提示..." style={largeTextareaStyle(darkMode)} />
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", marginTop: "22px", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: "10px" }}>
-          {note && <button onClick={onExport} style={secondaryButton(colors)}>导出 MD</button>}
-          {onDelete && <button onClick={onDelete} style={miniButton(colors.danger)}>删除</button>}
-        </div>
-        <div style={{ display: "flex", gap: "12px" }}>
-          <button onClick={onCancel} style={secondaryButton(colors)}>取消</button>
-          <button onClick={onSave} style={primaryButton(colors)}>保存</button>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
 function ConfirmModal({ darkMode, colors, title, message, onCancel, onConfirm }) {
   return (
     <ModalShell darkMode={darkMode} colors={colors} width="420px">
@@ -2680,79 +2733,6 @@ function ModalActions({ colors, darkMode, onCancel, onConfirm, confirmText }) {
   );
 }
 
-function mapBackendResource(resource) {
-  const fileUrl = getResourceFileUrl(resource);
-
-  return {
-    id: `api-resource-${resource.id}`,
-    backendId: resource.id,
-    name: resource.name || "未命名资料",
-    type: resource.type || getFileType(resource.name || ""),
-    filePath: resource.filePath || "",
-    url: resource.url || "",
-    size: resource.size || 0,
-    mimeType: guessMimeType(resource.name || ""),
-    objectUrl: fileUrl,
-    courseId: resource.courseId ? `api-${resource.courseId}` : null,
-    backendCourseId: resource.courseId,
-    courseName: resource.courseName || "未归属课程",
-    createdAt: resource.createdAt || Date.now(),
-    backendSynced: true,
-  };
-}
-
-function guessMimeType(fileName = "") {
-  const ext = String(fileName).split(".").pop()?.toLowerCase();
-
-  if (["jpg", "jpeg"].includes(ext)) return "image/jpeg";
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  if (ext === "pdf") return "application/pdf";
-  if (["doc", "docx"].includes(ext)) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (["ppt", "pptx"].includes(ext)) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-  if (["mp3", "wav", "m4a"].includes(ext)) return "audio/mpeg";
-  if (["txt", "md"].includes(ext)) return "text/plain";
-
-  return "application/octet-stream";
-}
-
-function mapBackendDdl(ddl) {
-  return {
-    ...ddl,
-    id: `api-ddl-${ddl.id}`,
-    backendId: ddl.id,
-    courseId: ddl.courseId ? `api-${ddl.courseId}` : null,
-    backendCourseId: ddl.courseId || null,
-    courseName: ddl.courseName || "未归属课程",
-    platform: ddl.platform || "",
-    note: ddl.note || "",
-    completed: Boolean(ddl.completed),
-    source: ddl.source || "后端同步",
-    backendSynced: true,
-  };
-}
-
-function mapBackendNote(note) {
-  return {
-    id: `api-note-${note.id}`,
-    backendId: note.id,
-    title: note.title,
-    content: note.content || "",
-    syntaxMode: "markdown",
-    courseId: note.courseId ? `api-${note.courseId}` : null,
-    backendCourseId: note.courseId,
-    courseName: note.courseName || "",
-    source: note.source || "手动记录",
-    sourceResourceId: null,
-    sourceResourceName: note.source || "手动记录",
-    sourceResourceType: note.aiGenerated ? "AI笔记" : "笔记",
-    createdAt: note.createdAt || Date.now(),
-    updatedAt: note.updatedAt || note.createdAt || Date.now(),
-    aiGenerated: Boolean(note.aiGenerated),
-    backendSynced: true,
-  };
-}
-
 function getNotesByResource(notes = [], resource) {
   if (!resource) return [];
 
@@ -2761,54 +2741,6 @@ function getNotesByResource(notes = [], resource) {
     String(note.sourceResourceName || "") === String(resource.name || "") ||
     String(note.source || "") === String(resource.name || "")
   );
-}
-
-function buildAINote(course, resource, resources) {
-  const sourceName = resource?.name || `${resources.length} 份课程资料`;
-  return `# ${course.title} · 结构化笔记
-
-> 来源：${sourceName}
-> 生成方式：AI 知识结构提取 Demo
-
-## 一、知识结构
-
-1. **核心概念梳理**
-   - 提取课程资料中的关键词、定义与适用场景。
-   - 将零散内容整理为“概念 → 原理 → 应用”的层级结构。
-
-2. **逻辑关系识别**
-   - 识别不同知识点之间的因果、并列、递进和对比关系。
-   - 帮助复习时快速把握章节主线。
-
-3. **重点内容归纳**
-   - 标记课堂讲义、PPT 或教材中高频出现的重点。
-   - 将重点转化为可复习、可检索的笔记条目。
-
-## 二、复习提示
-
-- 先理解概念定义，再整理应用场景。
-- 将例题、课堂案例与理论知识对应起来。
-- 考前可优先复习本笔记中的层级标题与重点条目。
-
-## 三、LaTeX 示例
-
-当课程中涉及公式、模型或推导时，可以使用 LaTeX 保存：
-
-$$
-A \\rightarrow B \\rightarrow C
-$$
-
-也可以记录为：
-
-$$
-\\text{知识理解} = \\text{概念掌握} + \\text{逻辑梳理} + \\text{应用训练}
-$$
-
-## 四、个人补充
-
-- 这里可以继续补充课堂老师强调的内容。
-- 可以加入自己的疑问、作业思路和复习计划。
-- 后续可导出为 Markdown / PDF / LaTeX 格式。`;
 }
 
 function filterByCourseSearch(items = [], searchText = "", fields = []) {
@@ -2861,21 +2793,6 @@ function BellIcon() {
   );
 }
 
-function topBarChipStyle(colors, active) {
-  return {
-    border: `1px solid ${active ? colors.active : colors.border}`,
-    background: active ? colors.active : colors.soft,
-    color: active ? "#FFFFFF" : colors.text,
-    borderRadius: "999px",
-    padding: "8px 12px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: 800,
-    fontFamily: "inherit",
-    whiteSpace: "nowrap",
-  };
-}
-
 function parseDate(date) {
   if (!date) return new Date("");
   return new Date(date.replace(" ", "T"));
@@ -2894,17 +2811,6 @@ function getDDLStatus(ddl) {
   const days = Math.ceil(diff / dayMs);
   if (days === 0) return { text: "今天截止", color: "#F59E0B" };
   return { text: `${days}天后截止`, color: "#F59E0B" };
-}
-
-function getFileType(fileName) {
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  if (["pdf"].includes(ext)) return "PDF";
-  if (["ppt", "pptx"].includes(ext)) return "PPT";
-  if (["doc", "docx"].includes(ext)) return "Word";
-  if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "图片";
-  if (["mp3", "wav", "m4a"].includes(ext)) return "录音";
-  if (["txt", "md"].includes(ext)) return "文本";
-  return "资料";
 }
 
 function formatFileSize(size) {
@@ -2929,19 +2835,6 @@ function createSnippet(text = "") {
     .slice(0, 52);
 }
 
-function downloadMarkdown(title, content) {
-  const safeTitle = (title || "NoteWhale笔记").replace(/[\\/:*?"<>|]/g, "_");
-  const blob = new Blob([content || ""], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${safeTitle}.md`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 const panelHeaderStyle = {
   display: "flex",
   justifyContent: "space-between",
@@ -2958,7 +2851,7 @@ const previewImageStyle = {
   marginBottom: "18px",
 };
 
-function uploadBoxStyle(colors, darkMode) {
+function uploadBoxStyle(colors) {
   return {
     background: colors.soft,
     border: `1px dashed ${colors.border}`,
@@ -3038,10 +2931,6 @@ function sectionTitleStyle(colors) {
   return { margin: "0 0 22px", color: colors.title, fontSize: "24px", fontWeight: 700 };
 }
 
-function itemCardStyle(colors) {
-  return { background: colors.soft, border: `1px solid ${colors.border}`, borderRadius: "16px", padding: "16px" };
-}
-
 function fileBadgeStyle(colors) {
   return {
     width: "42px",
@@ -3055,21 +2944,6 @@ function fileBadgeStyle(colors) {
     fontSize: "12px",
     fontWeight: 700,
     flexShrink: 0,
-  };
-}
-
-function backButtonStyle(colors, darkMode) {
-  return {
-    border: `1px solid ${colors.border}`,
-    background: darkMode ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.82)",
-    color: colors.text,
-    padding: "10px 16px",
-    borderRadius: "14px",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: 500,
-    fontFamily: "inherit",
-    marginBottom: "18px",
   };
 }
 
@@ -3138,6 +3012,45 @@ function secondaryButton(colors) {
   };
 }
 
+function selectWrapStyle(colors) {
+  return {
+    height: "43px",
+    border: `1px solid ${colors.border}`,
+    background: colors.soft,
+    color: colors.text,
+    borderRadius: "12px",
+    padding: "0 12px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    fontFamily: "inherit",
+  };
+}
+
+function selectStyle(colors) {
+  return {
+    border: "none",
+    background: "transparent",
+    color: colors.active,
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: 700,
+    fontFamily: "inherit",
+    outline: "none",
+  };
+}
+
+function disabledButtonStyle(baseStyle, disabled) {
+  if (!disabled) return baseStyle;
+
+  return {
+    ...baseStyle,
+    opacity: 0.58,
+    cursor: "not-allowed",
+    boxShadow: "none",
+  };
+}
+
 function ghostButton(colors) {
   return {
     border: `1px solid ${colors.border}`,
@@ -3196,3 +3109,4 @@ function resourcePreviewAreaStyle(colors) {
 }
 
 export default CoursePage;
+

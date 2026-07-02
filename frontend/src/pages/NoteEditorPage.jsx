@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { InlineMath, BlockMath } from "react-katex";
 import "katex/dist/katex.min.css";
@@ -7,6 +7,13 @@ import {
   getNotes as getBackendNotes,
   updateNote as updateBackendNote,
 } from "../api/noteApi";
+import {
+  readFirstStorageArray,
+  readStorageArray,
+  readStorageBoolean,
+  writeStorageArray,
+} from "../data/userStorage";
+import { mapBackendNote } from "../data/learningItemMappers";
 
 function NoteEditorPage() {
   const navigate = useNavigate();
@@ -14,23 +21,14 @@ function NoteEditorPage() {
   const previewRef = useRef(null);
   const { courseId, noteId } = useParams();
 
-  const darkMode = JSON.parse(localStorage.getItem("darkMode") || "false");
+  const darkMode = readStorageBoolean("darkMode", false);
 
   const isBackendCourseRoute = String(courseId).startsWith("api-");
   const backendCourseId = isBackendCourseRoute
     ? String(courseId).replace(/^api-/, "")
     : null;
 
-  const isBackendNoteRoute = String(noteId).startsWith("api-note-");
-  const backendNoteId = isBackendNoteRoute
-    ? String(noteId).replace(/^api-note-/, "")
-    : null;
-
-  const folders = JSON.parse(
-    localStorage.getItem("courseFolders") ||
-      localStorage.getItem("folders") ||
-      "[]"
-  );
+  const folders = readFirstStorageArray(["courseFolders", "folders"], []);
 
   const allCourses = folders.flatMap(
     (folder) => folder.courses || folder.items || []
@@ -55,19 +53,23 @@ function NoteEditorPage() {
     );
   });
 
-  const course = localCourse ||
-    (backendCourse
-      ? {
-          id: `api-${backendCourse.id}`,
-          backendId: backendCourse.id,
-          title: backendCourse.title,
-          starred: Boolean(backendCourse.starred),
-          backendSynced: true,
-        }
-      : null);
+  const course = useMemo(
+    () =>
+      localCourse ||
+      (backendCourse
+        ? {
+            id: `api-${backendCourse.id}`,
+            backendId: backendCourse.id,
+            title: backendCourse.title,
+            starred: Boolean(backendCourse.starred),
+            backendSynced: true,
+          }
+        : null),
+    [localCourse, backendCourse]
+  );
 
   const [notes, setNotes] = useState(() =>
-    JSON.parse(localStorage.getItem("notes") || "[]")
+    readStorageArray("notes", [])
   );
 
   const allNotes = useMemo(
@@ -75,7 +77,7 @@ function NoteEditorPage() {
     [notes, backendNotes]
   );
 
-  const note = allNotes.find((item) => {
+  const note = useMemo(() => allNotes.find((item) => {
     const rawNoteId = String(noteId || "");
     const normalizedNoteId = rawNoteId.replace(/^api-note-/, "");
 
@@ -85,7 +87,7 @@ function NoteEditorPage() {
       String(item.backendId || "") === rawNoteId ||
       `api-note-${item.backendId}` === rawNoteId
     );
-  });
+  }), [allNotes, noteId]);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -98,9 +100,10 @@ function NoteEditorPage() {
 
   useEffect(() => {
     let alive = true;
-    setBackendLoading(true);
 
     async function loadBackendData() {
+      setBackendLoading(true);
+
       try {
         const [courseData, noteData] = await Promise.all([
           getCourses(),
@@ -111,7 +114,7 @@ function NoteEditorPage() {
 
         setBackendCourses(Array.isArray(courseData) ? courseData : []);
         setBackendNotes(
-          Array.isArray(noteData) ? noteData.map(mapBackendNoteForEditor) : []
+          Array.isArray(noteData) ? noteData.map(mapBackendNote) : []
         );
       } catch {
         if (!alive) return;
@@ -132,28 +135,20 @@ function NoteEditorPage() {
   useEffect(() => {
     if (!note) return;
 
-    setTitle(note.title || "");
-    setContent(note.content || "");
-    setSavedTip(note.backendSynced ? "已连接数据库" : "已同步");
-  }, [note?.id]);
+    const syncTimer = window.setTimeout(() => {
+      setTitle(note.title || "");
+      setContent(note.content || "");
+      setSavedTip(note.backendSynced ? "已连接数据库" : "已同步");
+    }, 0);
+
+    return () => window.clearTimeout(syncTimer);
+  }, [note]);
 
   const colors = getColors(darkMode);
   const headings = useMemo(() => extractHeadings(content), [content]);
   const wordCount = plainText(content).length;
 
-  useEffect(() => {
-    if (!note || !course) return;
-
-    setSavedTip("正在自动保存…");
-
-    const timer = window.setTimeout(() => {
-      saveNote(true);
-    }, 800);
-
-    return () => window.clearTimeout(timer);
-  }, [title, content]);
-
-  async function saveNote(silent = false) {
+  const saveNote = useCallback(async (silent = false) => {
     if (!note || !title.trim()) return;
 
     if (note.backendSynced && note.backendId) {
@@ -163,7 +158,7 @@ function NoteEditorPage() {
           content,
         });
 
-        const mappedNote = mapBackendNoteForEditor(savedNote);
+        const mappedNote = mapBackendNote(savedNote);
 
         setBackendNotes((prevNotes) =>
           prevNotes.map((item) =>
@@ -192,11 +187,22 @@ function NoteEditorPage() {
     );
 
     setNotes(nextNotes);
-    localStorage.setItem("notes", JSON.stringify(nextNotes));
+    writeStorageArray("notes", nextNotes);
 
     setSavedTip(silent ? "已自动保存" : "已保存");
     window.setTimeout(() => setSavedTip("已同步"), 1400);
-  }
+  }, [content, note, noteId, notes, title]);
+
+  useEffect(() => {
+    if (!note || !course) return;
+
+    const savingTimer = window.setTimeout(() => {
+      setSavedTip("正在自动保存…");
+      saveNote(true);
+    }, 800);
+
+    return () => window.clearTimeout(savingTimer);
+  }, [course, note, saveNote, title, content]);
 
   function insertText(text, selectOffset = 0) {
     const textarea = textareaRef.current;
@@ -1006,14 +1012,22 @@ function inlineMarkdownToHtml(value = "") {
 function markdownToPrintableHtml(markdown = "") {
   const lines = String(markdown || "").split("\n");
   const html = [];
-  let listOpen = false;
+  let listType = "";
   let tableRows = [];
 
   function closeList() {
-    if (listOpen) {
-      html.push("</ul>");
-      listOpen = false;
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = "";
     }
+  }
+
+  function openList(nextType) {
+    if (listType === nextType) return;
+
+    closeList();
+    html.push(`<${nextType}>`);
+    listType = nextType;
   }
 
   function flushTable() {
@@ -1064,13 +1078,17 @@ function markdownToPrintableHtml(markdown = "") {
       return;
     }
 
-    const list = line.match(/^[-*]\s+(.+)$/);
-    if (list) {
-      if (!listOpen) {
-        html.push("<ul>");
-        listOpen = true;
-      }
-      html.push(`<li>${inlineMarkdownToHtml(list[1])}</li>`);
+    const unorderedList = line.match(/^[-*]\s+(.+)$/);
+    if (unorderedList) {
+      openList("ul");
+      html.push(`<li>${inlineMarkdownToHtml(unorderedList[1])}</li>`);
+      return;
+    }
+
+    const orderedList = line.match(/^\d+[.)]\s+(.+)$/);
+    if (orderedList) {
+      openList("ol");
+      html.push(`<li>${inlineMarkdownToHtml(orderedList[1])}</li>`);
       return;
     }
 
@@ -1093,6 +1111,7 @@ function markdownToPrintableHtml(markdown = "") {
 function exportMarkdownAsPdf(title, content, courseTitle = "课程") {
   const safeTitle = escapeHtml(title || "NoteWhale笔记");
   const safeCourseTitle = escapeHtml(courseTitle || "课程");
+  const exportTime = escapeHtml(new Date().toLocaleString());
   const bodyHtml = markdownToPrintableHtml(content || "");
   const printWindow = window.open("", "_blank");
 
@@ -1107,42 +1126,228 @@ function exportMarkdownAsPdf(title, content, courseTitle = "课程") {
   <meta charset="utf-8" />
   <title>${safeTitle}</title>
   <style>
-    @page { size: A4; margin: 18mm 16mm; }
+    @page {
+      size: A4;
+      margin: 18mm 17mm 18mm;
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
-      color: #183B63;
-      font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-      line-height: 1.75;
-      background: #fff;
+      color: #142F4F;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+      font-size: 10.7pt;
+      line-height: 1.68;
+      letter-spacing: 0;
+      background: #FFFFFF;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
-    .cover { border-bottom: 2px solid #DDE8F6; padding-bottom: 14px; margin-bottom: 22px; }
-    .brand { color: #2563EB; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-    h1 { font-size: 30px; margin: 8px 0 8px; line-height: 1.25; }
-    .meta { color: #64748B; font-size: 13px; }
-    h2 { font-size: 22px; margin: 24px 0 10px; border-left: 4px solid #2563EB; padding-left: 10px; }
-    h3 { font-size: 18px; margin: 18px 0 8px; }
-    h4 { font-size: 16px; margin: 14px 0 6px; }
-    p { margin: 8px 0; }
-    ul { margin: 8px 0 14px; padding-left: 22px; }
-    li { margin: 5px 0; }
-    blockquote { margin: 12px 0; padding: 10px 14px; border-left: 4px solid #93C5FD; background: #F8FAFC; color: #334155; border-radius: 8px; }
-    code { background: #F1F5F9; padding: 2px 5px; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 13px; }
-    th, td { border: 1px solid #DDE8F6; padding: 8px 10px; vertical-align: top; }
-    th { background: #F1F6FF; color: #183B63; }
-    a { color: #2563EB; text-decoration: none; }
-    .space { height: 8px; }
-    .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #E2E8F0; color: #94A3B8; font-size: 12px; }
+    .page {
+      max-width: 171mm;
+      margin: 0 auto;
+    }
+    .cover {
+      position: relative;
+      padding: 0 0 16px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid #DDE7F4;
+      break-inside: avoid;
+    }
+    .cover::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 36px;
+      height: 3px;
+      border-radius: 999px;
+      background: #2F6FED;
+    }
+    .brand {
+      color: #2F6FED;
+      font-size: 8.2pt;
+      font-weight: 800;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+      padding-top: 10px;
+    }
+    h1 {
+      color: #102E52;
+      font-size: 19.5pt;
+      margin: 0 0 8px;
+      line-height: 1.28;
+      font-weight: 800;
+    }
+    .meta {
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: #5E718A;
+      font-size: 8.8pt;
+    }
+    h2, h3, h4 {
+      color: #102E52;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    h2 {
+      font-size: 14.6pt;
+      margin: 20px 0 8px;
+      padding: 0 0 6px 10px;
+      border-left: 3px solid #2F6FED;
+      border-bottom: 1px solid #E3ECF7;
+      line-height: 1.35;
+    }
+    h3 {
+      font-size: 12.5pt;
+      margin: 15px 0 6px;
+      line-height: 1.42;
+    }
+    h4 {
+      font-size: 11.1pt;
+      margin: 12px 0 4px;
+      line-height: 1.45;
+      color: #24466E;
+    }
+    h2 + p,
+    h3 + p,
+    h4 + p,
+    h2 + ul,
+    h3 + ul,
+    h4 + ul,
+    h2 + ol,
+    h3 + ol,
+    h4 + ol {
+      margin-top: 4px;
+    }
+    p {
+      margin: 5px 0;
+      text-align: justify;
+      overflow-wrap: anywhere;
+    }
+    ul, ol {
+      margin: 7px 0 12px;
+      padding-left: 20px;
+    }
+    li {
+      margin: 3px 0;
+      padding-left: 2px;
+      break-inside: avoid;
+    }
+    li::marker {
+      color: #2F6FED;
+      font-weight: 700;
+    }
+    strong {
+      color: #102E52;
+      font-weight: 800;
+    }
+    blockquote {
+      margin: 12px 0;
+      padding: 10px 13px;
+      border: 1px solid #DCE9F8;
+      border-left: 4px solid #6BA1FF;
+      background: #F7FAFF;
+      color: #334155;
+      border-radius: 9px;
+      break-inside: avoid;
+    }
+    code {
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      background: #F1F5F9;
+      color: #0F2F55;
+      padding: 1px 5px;
+      border-radius: 5px;
+      font-size: 0.92em;
+    }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin: 12px 0 17px;
+      font-size: 9.7pt;
+      border: 1px solid #D9E6F4;
+      border-radius: 10px;
+      overflow: hidden;
+      break-inside: avoid;
+    }
+    th, td {
+      border-right: 1px solid #D9E6F4;
+      border-bottom: 1px solid #D9E6F4;
+      padding: 8px 9px;
+      vertical-align: top;
+      text-align: left;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    th:last-child, td:last-child {
+      border-right: none;
+    }
+    th {
+      background: #EEF6FF;
+      color: #102E52;
+      font-weight: 800;
+    }
+    a {
+      color: #2563EB;
+      text-decoration: none;
+    }
+    .space {
+      height: 5px;
+    }
+    .footer {
+      margin-top: 26px;
+      padding-top: 10px;
+      border-top: 1px solid #E2E8F0;
+      color: #8A9CB3;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      font-size: 8.5pt;
+      text-align: right;
+    }
+    .document-end {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 22px;
+      color: #8A9CB3;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      font-size: 9pt;
+    }
+    .document-end::before,
+    .document-end::after {
+      content: "";
+      height: 1px;
+      background: #E2E8F0;
+      flex: 1;
+    }
+    @media print {
+      .cover,
+      blockquote,
+      table {
+        break-inside: avoid;
+      }
+      h2 {
+        break-before: auto;
+      }
+    }
   </style>
 </head>
 <body>
-  <section class="cover">
-    <div class="brand">NoteWhale AI Powered Notes</div>
-    <h1>${safeTitle}</h1>
-    <div class="meta">课程：${safeCourseTitle} · 导出时间：${new Date().toLocaleString()}</div>
-  </section>
-  ${bodyHtml || '<p>暂无正文</p>'}
-  <div class="footer">由 NoteWhale 生成，可在编辑器中继续修改 Markdown 源文档。</div>
+  <main class="page">
+    <section class="cover">
+      <div class="brand">NoteWhale AI Powered Notes</div>
+      <h1>${safeTitle}</h1>
+      <div class="meta"><span>课程：${safeCourseTitle}</span><span>导出时间：${exportTime}</span></div>
+    </section>
+    ${bodyHtml || '<p>暂无正文</p>'}
+    <div class="document-end">鲸记 NoteWhale</div>
+    <div class="footer">由 NoteWhale 生成，可在编辑器中继续修改 Markdown 源文档。</div>
+  </main>
   <script>
     window.onload = function () {
       window.focus();
@@ -1152,25 +1357,6 @@ function exportMarkdownAsPdf(title, content, courseTitle = "课程") {
 </body>
 </html>`);
   printWindow.document.close();
-}
-
-function mapBackendNoteForEditor(note) {
-  return {
-    id: `api-note-${note.id}`,
-    backendId: note.id,
-    title: note.title,
-    content: note.content || "",
-    courseId: note.courseId ? `api-${note.courseId}` : null,
-    backendCourseId: note.courseId,
-    courseName: note.courseName || "",
-    source: note.source || "手动记录",
-    sourceResourceName: note.source || "手动记录",
-    sourceResourceType: note.aiGenerated ? "AI笔记" : "笔记",
-    aiGenerated: Boolean(note.aiGenerated),
-    createdAt: note.createdAt || Date.now(),
-    updatedAt: note.updatedAt || note.createdAt || Date.now(),
-    backendSynced: true,
-  };
 }
 
 function getColors(darkMode) {
@@ -1338,10 +1524,6 @@ function statusBarStyle(colors) {
 
 function sidebarTitleStyle(colors) {
   return { color: colors.active, fontSize: 18, fontWeight: 800, margin: "14px 0 16px" };
-}
-
-function courseNameStyle(colors) {
-  return { color: colors.muted, fontSize: 13, marginBottom: 16 };
 }
 
 function emptyTocStyle(colors) {

@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
-import LoginPage from "./pages/LoginPage";
-import HomePage from "./pages/HomePage";
-import CoursePage from "./pages/CoursePage";
-import NoteEditorPage from "./pages/NoteEditorPage";
-import DDLPage from "./pages/DDLPage";
 import { clearAuthSession, getAuthToken, getSavedUser, saveAuthSession } from "./api/apiClient";
 import { getCurrentUser, logoutAccount } from "./api/authApi";
+
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const HomePage = lazy(() => import("./pages/HomePage"));
+const CoursePage = lazy(() => import("./pages/CoursePage"));
+const NoteEditorPage = lazy(() => import("./pages/NoteEditorPage"));
+const DDLPage = lazy(() => import("./pages/DDLPage"));
 
 function App() {
   const [user, setUser] = useState(() => getSavedUser());
@@ -74,27 +75,12 @@ function App() {
   }
 
   if (authChecking) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background:
-            "linear-gradient(180deg,#F5F9FF 0%,#EEF6FF 100%)",
-          color: "#64748B",
-          fontFamily:
-            `"Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif`,
-        }}
-      >
-        正在恢复登录状态...
-      </div>
-    );
+    return <AppLoadingMessage text="正在恢复登录状态..." />;
   }
 
   return (
-    <Routes>
+    <Suspense fallback={<AppLoadingMessage text="正在加载页面..." />}>
+      <Routes>
       <Route
         path="/login"
         element={
@@ -143,7 +129,27 @@ function App() {
       />
 
       <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
+  );
+}
+
+function AppLoadingMessage({ text }) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(180deg,#F5F9FF 0%,#EEF6FF 100%)",
+        color: "#64748B",
+        fontFamily:
+          `"Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif`,
+      }}
+    >
+      {text}
+    </div>
   );
 }
 

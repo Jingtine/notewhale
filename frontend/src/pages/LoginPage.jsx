@@ -6,6 +6,19 @@ import { loginAccount, registerAccount } from "../api/authApi";
 
 const API_BASE_URL = getApiBaseUrl();
 
+async function probeBackend() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/health`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function LoginPage({ onLogin }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -13,9 +26,7 @@ function LoginPage({ onLogin }) {
   const [mode, setMode] = useState("login");
   const [account, setAccount] = useState("");
   const [name, setName] = useState("");
-  const [studentId, setStudentId] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("学生");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [apiState, setApiState] = useState("checking");
@@ -26,24 +37,9 @@ function LoginPage({ onLogin }) {
     let mounted = true;
 
     async function checkApi() {
-      try {
-        const response = await fetch(`${API_BASE_URL}/health`, {
-          method: "GET",
-          cache: "no-store",
-        });
-
-        if (!mounted) return;
-
-        if (response.ok) {
-          setApiState("online");
-        } else {
-          setApiState("local");
-        }
-      } catch {
-        if (mounted) {
-          setApiState("local");
-        }
-      }
+      const isOnline = await probeBackend();
+      if (!mounted) return;
+      setApiState(isOnline ? "online" : "local");
     }
 
     checkApi();
@@ -82,11 +78,23 @@ function LoginPage({ onLogin }) {
 
   async function submit() {
     const cleanAccount = account.trim();
-    const cleanName = name.trim() || cleanAccount.split("@")[0] || studentId.trim();
+    const cleanName = name.trim() || cleanAccount.split("@")[0];
 
     if (apiState !== "online") {
-      setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
-      return;
+      setLoading(true);
+      setError("正在重新检测后端连接...");
+
+      const isOnline = await probeBackend();
+      setApiState(isOnline ? "online" : "local");
+
+      if (!isOnline) {
+        setLoading(false);
+        setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
+        return;
+      }
+
+      setLoading(false);
+      setError("");
     }
 
     if (!cleanAccount) {
@@ -119,8 +127,6 @@ function LoginPage({ onLogin }) {
               account: cleanAccount,
               password: password.trim(),
               name: cleanName,
-              role: "学生",
-              studentId: "",
             })
           : await loginAccount({
               account: cleanAccount,

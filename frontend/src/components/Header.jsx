@@ -79,8 +79,9 @@ function Header({
     const hasShown = sessionStorage.getItem("notewhale_ddl_notice_shown");
 
     if (!hasShown && validUpcomingDdls.length > 0) {
-      setShowNotice(true);
       sessionStorage.setItem("notewhale_ddl_notice_shown", "true");
+      const noticeTimer = window.setTimeout(() => setShowNotice(true), 0);
+      return () => window.clearTimeout(noticeTimer);
     }
   }, [validUpcomingDdls.length]);
 

@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 import CourseCard from "./CourseCard";
 
 function FolderSection({
@@ -10,14 +12,48 @@ function FolderSection({
   onRestoreCourse,
   onPermanentDeleteCourse,
   onDeleteFolder,
+  onRenameFolder,
   canAddCourse = true,
   canDeleteFolder = false,
+  canRenameFolder = false,
   isTrash = false,
   darkMode = false,
 }) {
+  const [showFolderMenu, setShowFolderMenu] = useState(false);
+  const menuRef = useRef(null);
+
   const text = darkMode ? "#4B4762" : "#183B63";
   const subText = darkMode ? "#6F698C" : "#94A3B8";
   const border = darkMode ? "rgba(139,132,174,0.25)" : "#CBD5E1";
+  const menuBackground = darkMode ? "rgba(30,41,59,0.96)" : "rgba(255,255,255,0.96)";
+  const menuBorder = darkMode ? "rgba(148,163,184,0.2)" : "rgba(203,213,225,0.88)";
+  const menuShadow = darkMode
+    ? "0 18px 44px rgba(0,0,0,0.28)"
+    : "0 18px 44px rgba(15,42,74,0.12)";
+  const canManageFolder = canDeleteFolder || canRenameFolder;
+
+  useEffect(() => {
+    if (!showFolderMenu) return;
+
+    function handlePointerDown(event) {
+      if (!menuRef.current?.contains(event.target)) {
+        setShowFolderMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showFolderMenu]);
+
+  function handleRenameFolder() {
+    setShowFolderMenu(false);
+    onRenameFolder?.(folderId);
+  }
+
+  function handleDeleteFolder() {
+    setShowFolderMenu(false);
+    onDeleteFolder?.(folderId);
+  }
 
   return (
     <section style={{ marginBottom: "34px" }}>
@@ -51,20 +87,77 @@ function FolderSection({
           </span>
         </div>
 
-        {canDeleteFolder && (
-          <button
-            onClick={() => onDeleteFolder(folderId)}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: subText,
-              cursor: "pointer",
-              fontSize: "14px",
-              fontFamily: "inherit",
-            }}
-          >
-            删除文件夹
-          </button>
+        {canManageFolder && (
+          <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              type="button"
+              aria-label="文件夹操作"
+              onClick={() => setShowFolderMenu((value) => !value)}
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                border: darkMode ? "1px solid rgba(148,163,184,0.18)" : "1px solid transparent",
+                background: showFolderMenu
+                  ? darkMode
+                    ? "rgba(148,163,184,0.14)"
+                    : "rgba(255,255,255,0.78)"
+                  : "transparent",
+                color: subText,
+                cursor: "pointer",
+                fontSize: "0",
+                lineHeight: 1,
+                fontFamily: "inherit",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: showFolderMenu && !darkMode ? "0 8px 20px rgba(15,42,74,0.08)" : "none",
+              }}
+            >
+              <span style={folderMoreIconStyle(subText)} />
+            </button>
+
+            {showFolderMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "44px",
+                  zIndex: 20,
+                  minWidth: "148px",
+                  padding: "8px",
+                  borderRadius: "14px",
+                  border: `1px solid ${menuBorder}`,
+                  background: menuBackground,
+                  boxShadow: menuShadow,
+                  backdropFilter: "blur(10px)",
+                }}
+              >
+                {canRenameFolder && (
+                  <button
+                    type="button"
+                    onClick={handleRenameFolder}
+                    style={folderMenuItemStyle(darkMode)}
+                  >
+                    重命名
+                  </button>
+                )}
+
+                {canDeleteFolder && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteFolder}
+                    style={{
+                      ...folderMenuItemStyle(darkMode),
+                      color: darkMode ? "#FCA5A5" : "#B91C1C",
+                    }}
+                  >
+                    删除文件夹
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -133,6 +226,36 @@ function FolderSection({
       )}
     </section>
   );
+}
+
+function folderMenuItemStyle(darkMode) {
+  return {
+    width: "100%",
+    border: "none",
+    borderRadius: "10px",
+    background: "transparent",
+    color: darkMode ? "#E5E7EB" : "#183B63",
+    cursor: "pointer",
+    display: "block",
+    fontFamily: "inherit",
+    fontSize: "14px",
+    padding: "10px 12px",
+    textAlign: "left",
+    whiteSpace: "nowrap",
+  };
+}
+
+function folderMoreIconStyle(color) {
+  return {
+    width: "4px",
+    height: "4px",
+    borderRadius: "50%",
+    background: color,
+    boxShadow: `8px 0 0 ${color}, 16px 0 0 ${color}`,
+    display: "block",
+    transform: "translateX(-8px)",
+    opacity: 0.9,
+  };
 }
 
 export default FolderSection;
