@@ -35,6 +35,29 @@ function GlobalSettingsModal({
   const displayName = user?.name || "NoteWhale 用户";
   const accountText = user?.account || user?.email || "本地体验账号";
   const isOnline = Boolean(apiStatus.online);
+  const [activeSection, setActiveSection] = useState("account");
+  const navItems = [
+    {
+      id: "account",
+      label: "账号与安全",
+      detail: accountText,
+    },
+    {
+      id: "ai",
+      label: "AI 模型",
+      detail: "文本 / 视觉模型接入",
+    },
+    {
+      id: "sync",
+      label: "同步与数据",
+      detail: isOnline ? "后端 API 在线" : "后端连接异常",
+    },
+    {
+      id: "product",
+      label: "产品能力",
+      detail: "当前版本能力清单",
+    },
+  ];
 
   return (
     <div style={overlayStyle(darkMode)}>
@@ -54,54 +77,92 @@ function GlobalSettingsModal({
           <button onClick={onClose} style={closeButtonStyle(colors)}>×</button>
         </header>
 
-        <div style={summaryGridStyle}>
-          <SummaryCard label="账号" value={displayName} detail={accountText} colors={colors} />
-          <SummaryCard
-            label="后端"
-            value={isOnline ? "在线" : "离线"}
-            detail={isOnline ? apiStatus.apiBaseUrl || "API 已连接" : apiStatus.message || "无法连接 API"}
-            colors={colors}
-            tone={isOnline ? "success" : "warning"}
-          />
-          <SummaryCard label="课程" value={courseCount} detail={`${folderCount} 个文件夹`} colors={colors} />
-          <SummaryCard label="学习项" value={noteCount + resourceCount + ddlCount} detail={`${activeDdlCount} 个待办 DDL`} colors={colors} />
-        </div>
-
-        <AccountSettingsSection
-          user={user}
-          colors={colors}
-          onUserUpdated={onUserUpdated}
-        />
-
-        <section style={sectionStyle(colors)}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h3 style={sectionTitleStyle(colors)}>AI 模型接入</h3>
-              <p style={sectionTextStyle(colors)}>
-                默认使用后端环境变量；启用自定义后，AI 笔记和 DDL 识别会在请求时临时使用这里的配置。
-              </p>
+        <div style={settingsLayoutStyle}>
+          <aside style={settingsNavStyle(colors)}>
+            <div style={{ color: colors.muted, fontSize: "12px", fontWeight: 900, marginBottom: "10px" }}>
+              设置分类
             </div>
-          </div>
-          <AiModelSettingsPanel
-            value={aiModelSettings}
-            onChange={onChangeAiModelSettings}
-            backendStatus={aiStatus}
-            darkMode={darkMode}
-          />
-        </section>
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveSection(item.id)}
+                style={settingsNavButtonStyle(colors, activeSection === item.id)}
+              >
+                <span style={{ fontSize: "14px", fontWeight: 900 }}>{item.label}</span>
+                <span style={{ fontSize: "12px", opacity: 0.78 }}>{item.detail}</span>
+              </button>
+            ))}
+            <div style={accountSnapshotStyle(colors)}>
+              <div style={{ color: colors.muted, fontSize: "12px", fontWeight: 900 }}>
+                当前账号
+              </div>
+              <strong style={{ color: colors.title, fontSize: "16px" }}>{displayName}</strong>
+              <span style={{ color: colors.text, fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {accountText}
+              </span>
+            </div>
+          </aside>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px" }}>
-          <section style={sectionStyle(colors)}>
-            <h3 style={sectionTitleStyle(colors)}>同步与存储</h3>
-            <InfoLine label="课程同步" value={backendCourseMessage || "后端课程接口正常"} colors={colors} />
-            <InfoLine label="DDL 同步" value={backendDdlMessage || "后端 DDL 接口正常"} colors={colors} />
-            <InfoLine label="资料文件" value="上传资料保存在后端文件区，笔记保存在数据库" colors={colors} />
-          </section>
-          <section style={sectionStyle(colors)}>
-            <h3 style={sectionTitleStyle(colors)}>产品能力</h3>
-            <Capability colors={colors}>课程、文件夹、DDL、笔记按账号隔离</Capability>
-            <Capability colors={colors}>AI 笔记支持长文档分块整理</Capability>
-            <Capability colors={colors}>截图识别 DDL 可接入视觉模型</Capability>
+          <section style={settingsContentStyle(colors)}>
+            {activeSection === "account" && (
+              <AccountSettingsSection
+                user={user}
+                colors={colors}
+                onUserUpdated={onUserUpdated}
+              />
+            )}
+
+            {activeSection === "ai" && (
+              <section style={sectionStyle(colors)}>
+                <div style={sectionHeaderStyle}>
+                  <div>
+                    <h3 style={sectionTitleStyle(colors)}>AI 模型接入</h3>
+                    <p style={sectionTextStyle(colors)}>
+                      默认使用后端环境变量；启用自定义后，AI 笔记和 DDL 识别会在请求时临时使用这里的配置。
+                    </p>
+                  </div>
+                </div>
+                <AiModelSettingsPanel
+                  value={aiModelSettings}
+                  onChange={onChangeAiModelSettings}
+                  backendStatus={aiStatus}
+                  darkMode={darkMode}
+                />
+              </section>
+            )}
+
+            {activeSection === "sync" && (
+              <section style={sectionStyle(colors)}>
+                <div style={summaryGridStyle}>
+                  <SummaryCard
+                    label="后端"
+                    value={isOnline ? "在线" : "离线"}
+                    detail={isOnline ? apiStatus.apiBaseUrl || "API 已连接" : apiStatus.message || "无法连接 API"}
+                    colors={colors}
+                    tone={isOnline ? "success" : "warning"}
+                  />
+                  <SummaryCard label="课程" value={courseCount} detail={`${folderCount} 个文件夹`} colors={colors} />
+                  <SummaryCard label="学习项" value={noteCount + resourceCount + ddlCount} detail={`${activeDdlCount} 个待办 DDL`} colors={colors} />
+                  <SummaryCard label="资料" value={resourceCount} detail={`${noteCount} 条笔记`} colors={colors} />
+                </div>
+                <h3 style={sectionTitleStyle(colors)}>同步与存储</h3>
+                <InfoLine label="课程同步" value={backendCourseMessage || "后端课程接口正常"} colors={colors} />
+                <InfoLine label="DDL 同步" value={backendDdlMessage || "后端 DDL 接口正常"} colors={colors} />
+                <InfoLine label="资料文件" value="上传资料保存在后端文件区，笔记保存在数据库" colors={colors} />
+              </section>
+            )}
+
+            {activeSection === "product" && (
+              <section style={sectionStyle(colors)}>
+                <h3 style={sectionTitleStyle(colors)}>产品能力</h3>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <Capability colors={colors}>课程、文件夹、DDL、笔记按账号隔离</Capability>
+                  <Capability colors={colors}>AI 笔记支持长文档分块整理</Capability>
+                  <Capability colors={colors}>截图识别 DDL 可接入视觉模型</Capability>
+                </div>
+              </section>
+            )}
           </section>
         </div>
       </div>
@@ -410,10 +471,71 @@ const modalHeaderStyle = {
 
 const summaryGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: "14px",
   marginBottom: "18px",
 };
+
+const settingsLayoutStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "18px",
+  alignItems: "start",
+};
+
+function settingsNavStyle(colors) {
+  return {
+    flex: "1 1 220px",
+    position: "sticky",
+    top: 0,
+    display: "grid",
+    gap: "8px",
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "18px",
+    padding: "14px",
+  };
+}
+
+function settingsNavButtonStyle(colors, active) {
+  return {
+    display: "grid",
+    gap: "5px",
+    width: "100%",
+    border: `1px solid ${active ? colors.active : "transparent"}`,
+    borderRadius: "12px",
+    background: active ? `${colors.active}12` : "transparent",
+    color: active ? colors.active : colors.title,
+    textAlign: "left",
+    padding: "12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  };
+}
+
+function accountSnapshotStyle(colors) {
+  return {
+    display: "grid",
+    gap: "6px",
+    marginTop: "8px",
+    padding: "12px",
+    borderRadius: "12px",
+    background: colors.panel,
+    border: `1px solid ${colors.border}`,
+    minWidth: 0,
+  };
+}
+
+function settingsContentStyle(colors) {
+  return {
+    flex: "999 1 520px",
+    minWidth: 0,
+    background: colors.panel,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "18px",
+    padding: "4px",
+  };
+}
 
 const sectionHeaderStyle = {
   display: "flex",
@@ -425,11 +547,11 @@ const sectionHeaderStyle = {
 
 function sectionStyle(colors) {
   return {
-    background: colors.card,
-    border: `1px solid ${colors.border}`,
-    borderRadius: "18px",
+    background: colors.panel,
+    border: "none",
+    borderRadius: "16px",
     padding: "18px",
-    marginBottom: "18px",
+    marginBottom: 0,
   };
 }
 

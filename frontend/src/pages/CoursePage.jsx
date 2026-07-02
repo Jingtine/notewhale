@@ -2301,6 +2301,31 @@ function SettingsTab({
   aiStatus,
   darkMode,
 }) {
+  const [activeSettings, setActiveSettings] = useState("overview");
+  const totalItems = courseResources.length + courseNotes.length + activeDdls.length + completedDdls.length;
+  const settingsNavItems = [
+    {
+      id: "overview",
+      label: "课程概览",
+      detail: `${totalItems} 个课程项目`,
+    },
+    {
+      id: "ai",
+      label: "AI 接入",
+      detail: "资料笔记 / 截图识别",
+    },
+    {
+      id: "data",
+      label: "数据存储",
+      detail: course.backendSynced ? "后端账号数据" : "本地临时数据",
+    },
+    {
+      id: "status",
+      label: "项目能力",
+      detail: "当前课程可用功能",
+    },
+  ];
+
   return (
     <div style={contentCardStyle(colors)}>
       <div style={{ marginBottom: "26px" }}>
@@ -2325,151 +2350,130 @@ function SettingsTab({
         </p>
       </div>
 
-      <div style={{ ...settingPanelStyle(colors), marginBottom: "22px" }}>
-        <div style={settingPanelHeaderStyle()}>
-          <div>
-            <h3 style={settingTitleStyle(colors)}>本课程 AI 接入</h3>
-            <p style={settingSubtitleStyle(colors)}>
-              这里的模型配置会影响 AI 资料笔记和 DDL 截图识别；配置只保存在当前浏览器。
-            </p>
-          </div>
-          <span style={settingBadgeStyle(colors)}>Model</span>
-        </div>
-        <AiModelSettingsPanel
-          value={aiModelSettings}
-          onChange={setAiModelSettings}
-          backendStatus={aiStatus}
-          darkMode={darkMode}
-          compact
-        />
-      </div>
+      <div style={courseSettingsLayoutStyle}>
+        <aside style={courseSettingsNavStyle(colors)}>
+          {settingsNavItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveSettings(item.id)}
+              style={courseSettingsNavButtonStyle(colors, activeSettings === item.id)}
+            >
+              <span style={{ fontWeight: 800 }}>{item.label}</span>
+              <span style={{ fontSize: "12px", opacity: 0.76 }}>{item.detail}</span>
+            </button>
+          ))}
+        </aside>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
-          gap: "20px",
-          marginBottom: "22px",
-        }}
-      >
-        <div style={settingPanelStyle(colors)}>
-          <div style={settingPanelHeaderStyle()}>
-            <div>
-              <h3 style={settingTitleStyle(colors)}>课程信息</h3>
-              <p style={settingSubtitleStyle(colors)}>
-                当前课程空间的基础状态
-              </p>
+        <section style={{ flex: "999 1 520px", minWidth: 0 }}>
+          {activeSettings === "overview" && (
+            <div style={{ display: "grid", gap: "20px" }}>
+              <div style={settingPanelStyle(colors)}>
+                <div style={settingPanelHeaderStyle()}>
+                  <div>
+                    <h3 style={settingTitleStyle(colors)}>课程信息</h3>
+                    <p style={settingSubtitleStyle(colors)}>
+                      当前课程空间的基础状态
+                    </p>
+                  </div>
+                  <span style={settingBadgeStyle(colors)}>
+                    {course.backendSynced ? "Cloud" : "Local"}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gap: "12px" }}>
+                  <SettingLine label="课程名称" value={course.title} colors={colors} />
+                  <SettingLine
+                    label="存储方式"
+                    value={course.backendSynced ? "后端数据库保存" : "浏览器本地保存"}
+                    colors={colors}
+                  />
+                  <SettingLine
+                    label="同步状态"
+                    value={course.backendSynced ? "已按账号同步" : "本地临时课程"}
+                    colors={colors}
+                  />
+                  <SettingLine label="课程空间" value="资料 / 笔记 / DDL / AI 笔记" colors={colors} />
+                </div>
+              </div>
+
+              <div style={settingsStatsGridStyle}>
+                <SettingStatCard label="课程资料" value={courseResources.length} unit="份" colors={colors} />
+                <SettingStatCard label="课程笔记" value={courseNotes.length} unit="条" colors={colors} />
+                <SettingStatCard label="未完成 DDL" value={activeDdls.length} unit="个" colors={colors} />
+                <SettingStatCard label="已完成 DDL" value={completedDdls.length} unit="个" colors={colors} />
+              </div>
             </div>
-            <span style={settingBadgeStyle(colors)}>
-              {course.backendSynced ? "Cloud" : "Local"}
-            </span>
-          </div>
+          )}
 
-          <div style={{ display: "grid", gap: "12px" }}>
-            <SettingLine label="课程名称" value={course.title} colors={colors} />
-            <SettingLine
-              label="存储方式"
-              value={course.backendSynced ? "后端数据库保存" : "浏览器本地保存"}
-              colors={colors}
-            />
-            <SettingLine
-              label="同步状态"
-              value={course.backendSynced ? "已按账号同步" : "本地临时课程"}
-              colors={colors}
-            />
-            <SettingLine label="课程空间" value="资料 / 笔记 / DDL / AI 笔记" colors={colors} />
-          </div>
-        </div>
-
-        <div style={settingPanelStyle(colors)}>
-          <div style={settingPanelHeaderStyle()}>
-            <div>
-              <h3 style={settingTitleStyle(colors)}>项目状态</h3>
-              <p style={settingSubtitleStyle(colors)}>
-                中期检查可展示能力
-              </p>
+          {activeSettings === "ai" && (
+            <div style={settingPanelStyle(colors)}>
+              <div style={settingPanelHeaderStyle()}>
+                <div>
+                  <h3 style={settingTitleStyle(colors)}>本课程 AI 接入</h3>
+                  <p style={settingSubtitleStyle(colors)}>
+                    这里的模型配置会影响 AI 资料笔记和 DDL 截图识别；配置只保存在当前浏览器。
+                  </p>
+                </div>
+                <span style={settingBadgeStyle(colors)}>Model</span>
+              </div>
+              <AiModelSettingsPanel
+                value={aiModelSettings}
+                onChange={setAiModelSettings}
+                backendStatus={aiStatus}
+                darkMode={darkMode}
+                compact
+              />
             </div>
-            <span style={settingBadgeStyle(colors)}>MVP</span>
-          </div>
+          )}
 
-          <div style={{ display: "grid", gap: "10px" }}>
-            <StatusTag colors={colors} text="AI 资料笔记智能体已接入" />
-            <StatusTag colors={colors} text="Markdown 编辑与 PDF 导出已支持" />
-            <StatusTag colors={colors} text="资料查看与笔记关联已支持" />
-            <StatusTag colors={colors} text="账号数据隔离与后端同步已接入" />
-          </div>
-        </div>
-      </div>
+          {activeSettings === "data" && (
+            <div style={settingPanelStyle(colors)}>
+              <div style={settingPanelHeaderStyle()}>
+                <div>
+                  <h3 style={settingTitleStyle(colors)}>数据说明</h3>
+                  <p style={settingSubtitleStyle(colors)}>
+                    课程内资料、笔记、DDL 的保存位置
+                  </p>
+                </div>
+                <span style={settingBadgeStyle(colors)}>Storage</span>
+              </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: "16px",
-          marginBottom: "22px",
-        }}
-      >
-        <SettingStatCard
-          label="课程资料"
-          value={courseResources.length}
-          unit="份"
-          colors={colors}
-        />
+              <p style={{ margin: 0, color: colors.text, fontSize: "14px", lineHeight: 1.8 }}>
+                当前课程数据优先保存到后端数据库，并按登录账号进行隔离。
+                浏览器仅保留少量临时缓存与登录状态；上传资料会进入后端文件区，AI 笔记会保存为可编辑 Markdown 笔记。
+              </p>
 
-        <SettingStatCard
-          label="课程笔记"
-          value={courseNotes.length}
-          unit="条"
-          colors={colors}
-        />
+              <div style={{ display: "grid", gap: "12px", marginTop: "18px" }}>
+                <SettingLine label="课程主数据" value={course.backendSynced ? "后端数据库" : "浏览器本地"} colors={colors} />
+                <SettingLine label="上传资料" value="backend/uploads 文件区" colors={colors} />
+                <SettingLine label="AI 笔记" value="Markdown 笔记，可继续编辑" colors={colors} />
+              </div>
+            </div>
+          )}
 
-        <SettingStatCard
-          label="未完成 DDL"
-          value={activeDdls.length}
-          unit="个"
-          colors={colors}
-        />
+          {activeSettings === "status" && (
+            <div style={settingPanelStyle(colors)}>
+              <div style={settingPanelHeaderStyle()}>
+                <div>
+                  <h3 style={settingTitleStyle(colors)}>已接入能力</h3>
+                  <p style={settingSubtitleStyle(colors)}>
+                    当前课程空间已经具备的产品能力
+                  </p>
+                </div>
+                <span style={settingBadgeStyle(colors)}>MVP</span>
+              </div>
 
-        <SettingStatCard
-          label="已完成 DDL"
-          value={completedDdls.length}
-          unit="个"
-          colors={colors}
-        />
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-          gap: "20px",
-        }}
-      >
-        <div style={settingPanelStyle(colors)}>
-          <h3 style={settingTitleStyle(colors)}>数据说明</h3>
-
-          <p
-            style={{
-              margin: 0,
-              color: colors.text,
-              fontSize: "14px",
-              lineHeight: 1.8,
-            }}
-          >
-            当前课程数据优先保存到后端数据库，并按登录账号进行隔离。
-            浏览器仅保留少量临时缓存与登录状态；上传资料会进入后端文件区，AI 笔记会保存为可编辑 Markdown 笔记。
-          </p>
-        </div>
-
-        <div style={settingPanelStyle(colors)}>
-          <h3 style={settingTitleStyle(colors)}>已接入能力</h3>
-
-          <div style={{ display: "grid", gap: "10px" }}>
-            <StatusTag colors={colors} text="课程、资料、笔记、DDL 后端建表" />
-            <StatusTag colors={colors} text="上传文件保存到 backend/uploads" />
-            <StatusTag colors={colors} text="AI 生成笔记后可继续编辑并导出 PDF" />
-          </div>
-        </div>
+              <div style={{ display: "grid", gap: "10px" }}>
+                <StatusTag colors={colors} text="AI 资料笔记智能体已接入" />
+                <StatusTag colors={colors} text="Markdown 编辑与 PDF 导出已支持" />
+                <StatusTag colors={colors} text="资料查看与笔记关联已支持" />
+                <StatusTag colors={colors} text="账号数据隔离与后端同步已接入" />
+                <StatusTag colors={colors} text="课程、资料、笔记、DDL 后端建表" />
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -2572,6 +2576,48 @@ function StatusTag({ text, colors, tone = "active" }) {
       {text}
     </div>
   );
+}
+
+const courseSettingsLayoutStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "20px",
+  alignItems: "start",
+};
+
+const settingsStatsGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: "16px",
+};
+
+function courseSettingsNavStyle(colors) {
+  return {
+    flex: "1 1 210px",
+    display: "grid",
+    gap: "8px",
+    background: colors.soft,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "16px",
+    padding: "12px",
+  };
+}
+
+function courseSettingsNavButtonStyle(colors, active) {
+  return {
+    display: "grid",
+    gap: "5px",
+    width: "100%",
+    border: `1px solid ${active ? colors.active : "transparent"}`,
+    borderRadius: "12px",
+    background: active ? `${colors.active}12` : "transparent",
+    color: active ? colors.active : colors.title,
+    textAlign: "left",
+    padding: "12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontSize: "14px",
+  };
 }
 
 function settingPanelStyle(colors) {
