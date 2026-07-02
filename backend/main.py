@@ -250,6 +250,9 @@ app = FastAPI(
 # You can also add more origins through NOTEWHALE_FRONTEND_ORIGINS,
 # separated by commas.
 frontend_origins = [
+    # Electron desktop production builds load the frontend from file://,
+    # which reaches FastAPI with Origin: null.
+    "null",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://notewhale.vercel.app",
