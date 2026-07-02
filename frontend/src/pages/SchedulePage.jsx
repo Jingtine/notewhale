@@ -27,7 +27,7 @@ import { generateStudyPlanBlocks } from "../data/schedulePlanner";
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const START_HOUR = 8;
 const END_HOUR = 22;
-const HOUR_HEIGHT = 64;
+const HOUR_HEIGHT = 20;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
 const STUDY_PLAN_STORAGE_KEY = "studyPlanBlocks";
@@ -1201,7 +1201,7 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
   const start = clampStartMinutes(timeToMinutes(item.startTime));
   const end = clampMinutes(timeToMinutes(item.endTime));
   const top = ((start - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-  const height = Math.max(38, ((end - start) / 60) * HOUR_HEIGHT);
+  const height = Math.max(24, ((end - start) / 60) * HOUR_HEIGHT);
   const isDdl = type === "ddl";
   const isStudy = type === "study";
   const isExam = type === "exam";
@@ -1230,12 +1230,12 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
       }}
       style={{
         position: "absolute",
-        left: "6px",
-        right: "6px",
+        left: "4px",
+        right: "4px",
         top,
         minHeight: height,
-        borderRadius: "12px",
-        padding: "9px 10px",
+        borderRadius: "9px",
+        padding: "4px 6px",
         boxSizing: "border-box",
         background: blockBg,
         border: `1px solid ${blockBorder}`,
@@ -1246,8 +1246,8 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
         opacity: isDone ? 0.68 : 1,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-        <strong style={{ fontSize: "13px", lineHeight: 1.25, textDecoration: isDone ? "line-through" : "none" }}>{item.title}</strong>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
+        <strong style={{ fontSize: "11px", lineHeight: 1.2, textDecoration: isDone ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</strong>
         {onToggleDone && (
           <button
             type="button"
@@ -1273,14 +1273,14 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
           </button>
         )}
       </div>
-      <div style={{ fontSize: "11px", marginTop: "5px", opacity: 0.86 }}>
+      <div style={{ fontSize: "10px", marginTop: "3px", opacity: 0.86, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {item.startTime} - {item.endTime}
       </div>
-      <div style={{ fontSize: "11px", marginTop: "4px", opacity: 0.78 }}>
+      <div style={{ fontSize: "10px", marginTop: "2px", opacity: 0.78, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {item.location || item.courseName || "固定时间"}
       </div>
       {buildClassMetaText(item, { includeLocation: false }) && (
-        <div style={{ fontSize: "10px", marginTop: "4px", opacity: 0.72 }}>
+        <div style={{ fontSize: "10px", marginTop: "2px", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {buildClassMetaText(item, { includeLocation: false })}
         </div>
       )}
@@ -1382,9 +1382,9 @@ function buildMonthDayItems({ date, fixedClasses, ddls, exams, studyBlocks }) {
 function StatCard({ label, value, detail, colors }) {
   return (
     <div style={statCardStyle(colors)}>
-      <span style={{ color: colors.muted, fontSize: "12px", fontWeight: 900 }}>{label}</span>
-      <strong style={{ color: colors.title, fontSize: "21px", marginTop: "8px" }}>{value}</strong>
-      <span style={{ color: colors.text, fontSize: "12px", marginTop: "5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ color: colors.muted, fontSize: "11px", fontWeight: 900 }}>{label}</span>
+      <strong style={{ color: colors.title, fontSize: "17px", marginTop: "4px" }}>{value}</strong>
+      <span style={{ color: colors.text, fontSize: "11px", marginTop: "3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {detail}
       </span>
     </div>
@@ -1709,24 +1709,24 @@ function hasNjuScheduleBridge() {
 
 const pageGridStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) 340px",
-  gap: "22px",
-  padding: "0 28px 32px",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: "14px",
+  padding: "0 22px 28px",
 };
 
 const calendarHeaderStyle = {
   display: "flex",
-  alignItems: "flex-start",
+  alignItems: "center",
   justifyContent: "space-between",
-  gap: "18px",
-  marginBottom: "18px",
+  gap: "14px",
+  marginBottom: "10px",
 };
 
 const statsGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-  gap: "12px",
-  marginBottom: "18px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+  gap: "8px",
+  marginBottom: "10px",
 };
 
 function viewToggleStyle(colors) {
@@ -1738,7 +1738,7 @@ function viewToggleStyle(colors) {
     border: `1px solid ${colors.border}`,
     borderRadius: "12px",
     padding: "4px",
-    marginBottom: "14px",
+    marginBottom: "10px",
   };
 }
 
@@ -1757,7 +1757,7 @@ function viewToggleButtonStyle(colors, active) {
 }
 
 const calendarScrollStyle = {
-  overflowX: "auto",
+  overflowX: "visible",
   paddingBottom: "4px",
 };
 
@@ -1765,7 +1765,7 @@ function scheduleContentStyle(colors) {
   return {
     flex: 1,
     overflowY: "auto",
-    padding: "30px 32px 36px",
+    padding: "18px 24px 30px",
     boxSizing: "border-box",
     background: colors.bg,
   };
@@ -1778,8 +1778,8 @@ function scheduleHeroStyle(colors) {
     alignItems: "flex-start",
     gap: "18px",
     borderBottom: `1px solid ${colors.border}`,
-    paddingBottom: "18px",
-    marginBottom: "22px",
+    paddingBottom: "12px",
+    marginBottom: "14px",
   };
 }
 
@@ -1788,29 +1788,29 @@ function calendarShellStyle(colors) {
     minWidth: 0,
     background: colors.shell,
     border: `1px solid ${colors.border}`,
-    borderRadius: "22px",
-    padding: "20px",
-    boxShadow: "0 18px 46px rgba(15,42,74,0.08)",
+    borderRadius: "18px",
+    padding: "14px",
+    boxShadow: "0 14px 34px rgba(15,42,74,0.07)",
   };
 }
 
 function sidePanelStyle(colors) {
   return {
     display: "grid",
-    gap: "16px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: "14px",
     alignContent: "start",
-    position: "sticky",
-    top: "18px",
     color: colors.title,
   };
 }
 
 function panelCardStyle(colors) {
   return {
+    minWidth: 0,
     background: colors.panel,
     border: `1px solid ${colors.border}`,
-    borderRadius: "18px",
-    padding: "18px",
+    borderRadius: "16px",
+    padding: "16px",
   };
 }
 
@@ -1825,8 +1825,8 @@ function panelTextStyle(colors) {
 function weekGridStyle(colors) {
   return {
     display: "grid",
-    gridTemplateColumns: "62px repeat(7, minmax(112px, 1fr))",
-    minWidth: "940px",
+    gridTemplateColumns: "48px repeat(7, minmax(0, 1fr))",
+    minWidth: 0,
     border: `1px solid ${colors.border}`,
     borderRadius: "18px",
     overflow: "hidden",
@@ -1845,7 +1845,7 @@ function timeLabelStyle(colors) {
   return {
     height: `${HOUR_HEIGHT}px`,
     color: colors.muted,
-    fontSize: "11px",
+    fontSize: "9px",
     textAlign: "center",
     boxSizing: "border-box",
     paddingTop: "4px",
@@ -1861,7 +1861,7 @@ function dayColumnStyle(colors) {
 
 function dayHeaderStyle(colors, active) {
   return {
-    height: "48px",
+    height: "34px",
     display: "grid",
     placeItems: "center",
     gap: "2px",
@@ -1893,8 +1893,8 @@ function statCardStyle(colors) {
     display: "grid",
     background: colors.panel,
     border: `1px solid ${colors.border}`,
-    borderRadius: "14px",
-    padding: "14px",
+    borderRadius: "12px",
+    padding: "10px 12px",
     minWidth: 0,
   };
 }
@@ -1902,10 +1902,10 @@ function statCardStyle(colors) {
 function emptyDayStyle(colors) {
   return {
     position: "absolute",
-    top: "12px",
-    left: "10px",
+    top: "8px",
+    left: "8px",
     color: colors.muted,
-    fontSize: "12px",
+    fontSize: "11px",
   };
 }
 
