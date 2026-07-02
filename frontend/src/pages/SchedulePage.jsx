@@ -81,10 +81,10 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [scheduleImportErrors, setScheduleImportErrors] = useState([]);
   const [njuImporting, setNjuImporting] = useState(false);
   const [scheduleImportMessage, setScheduleImportMessage] = useState(
-    "不保存账号密码；桌面版可在认证后自动读取，网页版可粘贴或导入课表内容。"
+    "桌面端可认证读取；也可粘贴导入。"
   );
   const [studyBlockDraft, setStudyBlockDraft] = useState(null);
-  const [studyPlanMessage, setStudyPlanMessage] = useState("生成后可选中复习块手动微调。");
+  const [studyPlanMessage, setStudyPlanMessage] = useState("可选中复习块微调。");
   const [selectedFolder, setSelectedFolder] = useState("学习日程");
   const [searchText, setSearchText] = useState("");
 
@@ -657,7 +657,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
               学习日程
             </h1>
             <p style={{ margin: "8px 0 0", color: colors.text, fontSize: "14px", lineHeight: 1.7 }}>
-              固定课表锁定上课时间，DDL 和复习规划会围绕空余时间安排。
+              锁定课程，安排 DDL 与复习。
             </p>
           </div>
           <button type="button" onClick={() => navigate("/")} style={outlineButtonStyle(colors)}>
@@ -818,7 +818,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>南京大学课表导入</h2>
             <p style={panelTextStyle(colors)}>
-              打开本科生院官方入口后进入教服平台，NoteWhale 不接触也不保存账号密码。
+              认证后读取课表；不保存账号密码。
             </p>
             <div style={importActionRowStyle}>
               <button
@@ -842,8 +842,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
             </div>
             <p style={importMessageStyle(colors)}>
               {hasDesktopScheduleBridge
-                ? "已检测到桌面自动读取能力，认证后会自动回填课表。"
-                : "当前运行在网页环境，认证页打开后只能手动复制或导出；桌面版会自动读取。"}
+                ? "桌面读取已可用。"
+                : "网页模式可粘贴导入。"}
             </p>
             <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
               <span>本学期第 1 周周一</span>
@@ -865,8 +865,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
             </label>
             <p style={importMessageStyle(colors)}>
               {teachingWeek
-                ? `当前视图按第 ${teachingWeek} 教学周显示导入课程。`
-                : "未设置学期起始周时，导入课程会在每周视图中显示。"}
+                ? `第 ${teachingWeek} 教学周`
+                : "未设置教学周"}
             </p>
             <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
               <span>粘贴课表 / 导入 CSV、TXT</span>
@@ -915,7 +915,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>录入固定课表</h2>
             <p style={panelTextStyle(colors)}>
-              线下课程会被标记为锁定时间，后续自动复习规划不会覆盖这些时段。
+              锁定上课时间，规划自动避开。
             </p>
             <form onSubmit={addFixedClass} style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
               <label style={fieldStyle(colors)}>
@@ -982,7 +982,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>录入考试</h2>
             <p style={panelTextStyle(colors)}>
-              考试会进入月视图和自动复习规划，重要度越高越优先安排复习块。
+              用于月视图和复习权重。
             </p>
             <form onSubmit={addExam} style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
               <label style={fieldStyle(colors)}>
@@ -1082,7 +1082,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>自动复习规划</h2>
             <p style={panelTextStyle(colors)}>
-              根据本周 DDL 和固定课表，优先把复习块放在截止前的空余时间。
+              优先安排截止前的空余时间。
             </p>
             <div style={importActionRowStyle}>
               <button type="button" onClick={generateWeeklyStudyPlan} style={primaryButtonStyle(colors)}>

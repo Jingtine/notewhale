@@ -2437,7 +2437,7 @@ function SettingsTab({
     {
       id: "status",
       label: "项目能力",
-      detail: "当前课程可用功能",
+      detail: "能力清单",
     },
   ];
 
@@ -2461,7 +2461,7 @@ function SettingsTab({
             lineHeight: 1.7,
           }}
         >
-          管理当前课程的基础信息、学习数据与智能化能力状态。当前课程资料、笔记与 DDL 已接入后端账号数据体系。
+          课程信息、AI、存储与能力状态。
         </p>
       </div>
 
@@ -2488,7 +2488,7 @@ function SettingsTab({
                   <div>
                     <h3 style={settingTitleStyle(colors)}>课程信息</h3>
                     <p style={settingSubtitleStyle(colors)}>
-                      当前课程空间的基础状态
+                      基础状态
                     </p>
                   </div>
                   <span style={settingBadgeStyle(colors)}>
@@ -2527,7 +2527,7 @@ function SettingsTab({
                 <div>
                   <h3 style={settingTitleStyle(colors)}>本课程 AI 接入</h3>
                   <p style={settingSubtitleStyle(colors)}>
-                    这里的模型配置会影响 AI 资料笔记和 DDL 截图识别；配置只保存在当前浏览器。
+                    影响资料笔记与截图识别。
                   </p>
                 </div>
                 <span style={settingBadgeStyle(colors)}>Model</span>
@@ -2546,20 +2546,15 @@ function SettingsTab({
             <div style={settingPanelStyle(colors)}>
               <div style={settingPanelHeaderStyle()}>
                 <div>
-                  <h3 style={settingTitleStyle(colors)}>数据说明</h3>
+                  <h3 style={settingTitleStyle(colors)}>数据位置</h3>
                   <p style={settingSubtitleStyle(colors)}>
-                    课程内资料、笔记、DDL 的保存位置
+                    资料、笔记、DDL
                   </p>
                 </div>
                 <span style={settingBadgeStyle(colors)}>Storage</span>
               </div>
 
-              <p style={{ margin: 0, color: colors.text, fontSize: "14px", lineHeight: 1.8 }}>
-                当前课程数据优先保存到后端数据库，并按登录账号进行隔离。
-                浏览器仅保留少量临时缓存与登录状态；上传资料会进入后端文件区，AI 笔记会保存为可编辑 Markdown 笔记。
-              </p>
-
-              <div style={{ display: "grid", gap: "12px", marginTop: "18px" }}>
+              <div style={{ display: "grid", gap: "12px" }}>
                 <SettingLine label="课程主数据" value={course.backendSynced ? "后端数据库" : "浏览器本地"} colors={colors} />
                 <SettingLine label="上传资料" value="backend/uploads 文件区" colors={colors} />
                 <SettingLine label="AI 笔记" value="Markdown 笔记，可继续编辑" colors={colors} />
@@ -2573,18 +2568,18 @@ function SettingsTab({
                 <div>
                   <h3 style={settingTitleStyle(colors)}>已接入能力</h3>
                   <p style={settingSubtitleStyle(colors)}>
-                    当前课程空间已经具备的产品能力
+                    能力清单
                   </p>
                 </div>
                 <span style={settingBadgeStyle(colors)}>MVP</span>
               </div>
 
               <div style={{ display: "grid", gap: "10px" }}>
-                <StatusTag colors={colors} text="AI 资料笔记智能体已接入" />
-                <StatusTag colors={colors} text="Markdown 编辑与 PDF 导出已支持" />
-                <StatusTag colors={colors} text="资料查看与笔记关联已支持" />
-                <StatusTag colors={colors} text="账号数据隔离与后端同步已接入" />
-                <StatusTag colors={colors} text="课程、资料、笔记、DDL 后端建表" />
+                <StatusTag colors={colors} text="AI 资料笔记" />
+                <StatusTag colors={colors} text="Markdown 与 PDF 导出" />
+                <StatusTag colors={colors} text="资料预览与笔记关联" />
+                <StatusTag colors={colors} text="账号隔离与后端同步" />
+                <StatusTag colors={colors} text="课程数据表" />
               </div>
             </div>
           )}
