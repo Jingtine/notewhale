@@ -9,6 +9,7 @@ import { mapBackendFolder } from "../data/courseFolderStore";
 import { mapBackendDdl } from "../data/learningItemMappers";
 import {
   NJU_AUTH_SCHEDULE_URL,
+  NJU_PORTAL_SCHEDULE_ENTRY_URL,
   NJU_SCHEDULE_EXTRACTOR_SCRIPT,
   NJU_UNDERGRAD_SCHEDULE_TARGET_URL,
   mapNjuSchedulePayloadToFixedClasses,
@@ -33,7 +34,7 @@ const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
 const STUDY_PLAN_STORAGE_KEY = "studyPlanBlocks";
 const EXAM_STORAGE_KEY = "scheduleExamItems";
 const REMINDER_STORAGE_KEY = "scheduleReminderEnabled";
-const NJU_TEACHING_DIRECT_URL = NJU_AUTH_SCHEDULE_URL;
+const NJU_TEACHING_DIRECT_URL = NJU_PORTAL_SCHEDULE_ENTRY_URL || NJU_AUTH_SCHEDULE_URL;
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
 
@@ -78,6 +79,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [scheduleImportText, setScheduleImportText] = useState("");
   const [scheduleImportPreview, setScheduleImportPreview] = useState([]);
   const [scheduleImportErrors, setScheduleImportErrors] = useState([]);
+  const [njuImporting, setNjuImporting] = useState(false);
   const [scheduleImportMessage, setScheduleImportMessage] = useState(
     "不保存账号密码；桌面版可在认证后自动读取，网页版可粘贴或导入课表内容。"
   );
@@ -506,6 +508,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
   }
 
   async function autoImportNjuSchedule() {
+    if (njuImporting) return;
+
     if (!hasNjuScheduleBridge()) {
       openNjuTeachingPortal(NJU_TEACHING_DIRECT_URL, true);
       setScheduleImportMessage(
@@ -516,6 +520,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
 
     try {
       setScheduleImportMessage("正在等待南京大学统一认证完成并读取课表...");
+      setNjuImporting(true);
+      setScheduleImportErrors([]);
       const payload = await window.notewhaleDesktop.importNjuSchedule({
         initialUrl: NJU_TEACHING_DIRECT_URL,
         targetUrl: NJU_UNDERGRAD_SCHEDULE_TARGET_URL,
@@ -540,6 +546,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
     } catch (error) {
       setScheduleImportErrors([error?.message || "自动读取失败"]);
       setScheduleImportMessage("自动读取失败，可以先使用粘贴导入。");
+    } finally {
+      setNjuImporting(false);
     }
   }
 
@@ -816,7 +824,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
               <button
                 type="button"
                 onClick={autoImportNjuSchedule}
-                style={primaryButtonStyle(colors)}
+                disabled={njuImporting}
+                style={primaryButtonStyle(colors, njuImporting)}
               >
                 认证并自动读取
               </button>

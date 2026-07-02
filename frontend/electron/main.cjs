@@ -356,6 +356,39 @@ function stopLocalBackend() {
   backendProcess.kill();
 }
 
+function isLikelyNjuSchedulePage(url, targetUrl) {
+  const current = String(url || "");
+  const target = String(targetUrl || "");
+  const targetBase = target.split("#")[0];
+
+  return (
+    (target && current.startsWith(target)) ||
+    (targetBase && current.startsWith(targetBase)) ||
+    current.includes("/jwapp/sys/wdkb/") ||
+    current.includes("#/xskcb")
+  );
+}
+
+function parseScheduleExtractionResult(result) {
+  if (!result) return null;
+
+  try {
+    const payload = typeof result === "object"
+      ? result
+      : JSON.parse(decodeURIComponent(String(result).replace(/^"|"$/g, "")));
+    const courses = Array.isArray(payload?.courses)
+      ? payload.courses
+      : JSON.parse(payload?.courses || "[]");
+
+    return {
+      payload: result,
+      courseCount: Array.isArray(courses) ? courses.length : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
   return new Promise((resolve, reject) => {
     const authWindow = new BrowserWindow({
@@ -375,10 +408,25 @@ function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
       },
     });
     let settled = false;
+    let extractTimer = null;
+    let timeoutTimer = null;
+    let lastExtractionError = null;
+
+    function clearExtractionTimers() {
+      if (extractTimer) {
+        clearTimeout(extractTimer);
+        extractTimer = null;
+      }
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    }
 
     function settle(callback, value) {
       if (settled) return;
       settled = true;
+      clearExtractionTimers();
       authWindow.removeAllListeners();
       if (!authWindow.isDestroyed()) {
         authWindow.close();
@@ -386,14 +434,30 @@ function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
       callback(value);
     }
 
+    function scheduleExtract(delayMs = 800) {
+      if (settled) return;
+      if (extractTimer) clearTimeout(extractTimer);
+      extractTimer = setTimeout(() => {
+        tryExtract(authWindow.webContents.getURL());
+      }, delayMs);
+    }
+
     async function tryExtract(url) {
-      if (!String(url || "").startsWith(targetUrl)) return;
+      if (settled || !isLikelyNjuSchedulePage(url, targetUrl)) return;
 
       try {
         const result = await authWindow.webContents.executeJavaScript(extractorScript, true);
-        settle(resolve, result);
+        const parsedResult = parseScheduleExtractionResult(result);
+
+        if (parsedResult?.courseCount > 0) {
+          settle(resolve, parsedResult.payload);
+          return;
+        }
+
+        scheduleExtract(1200);
       } catch (error) {
-        settle(reject, error);
+        lastExtractionError = error;
+        scheduleExtract(1500);
       }
     }
 
@@ -409,14 +473,23 @@ function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
       }
     });
     authWindow.webContents.on("did-finish-load", () => {
-      tryExtract(authWindow.webContents.getURL());
+      scheduleExtract(600);
     });
     authWindow.webContents.on("did-navigate", (_event, url) => {
-      tryExtract(url);
+      if (isLikelyNjuSchedulePage(url, targetUrl)) scheduleExtract(600);
     });
     authWindow.webContents.on("did-navigate-in-page", (_event, url) => {
-      tryExtract(url);
+      if (isLikelyNjuSchedulePage(url, targetUrl)) scheduleExtract(600);
     });
+    authWindow.webContents.on("dom-ready", () => {
+      scheduleExtract(900);
+    });
+    timeoutTimer = setTimeout(() => {
+      const message = lastExtractionError?.message
+        ? `课表读取超时：${lastExtractionError.message}`
+        : "课表读取超时，请确认已完成统一认证并进入“我的课表”页面。";
+      settle(reject, new Error(message));
+    }, 180000);
     authWindow.loadURL(initialUrl).catch((error) => settle(reject, error));
   });
 }

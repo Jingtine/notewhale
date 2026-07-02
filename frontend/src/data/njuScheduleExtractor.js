@@ -15,6 +15,9 @@ const PERIOD_TIMES = {
 export const NJU_UNDERGRAD_SCHEDULE_TARGET_URL =
   "https://ehallapp.nju.edu.cn/jwapp/sys/wdkb/*default/index.do#/xskcb";
 
+export const NJU_PORTAL_SCHEDULE_ENTRY_URL =
+  "https://ehall.nju.edu.cn/portal/html/select_role.html?appId=7170579276974719";
+
 export const NJU_AUTH_SCHEDULE_URL =
   "https://authserver.nju.edu.cn/authserver/login?service=https%3A%2F%2Fehallapp.nju.edu.cn%2Fjwapp%2Fsys%2Fwdkb%2F*default%2Findex.do%23%2Fxskcb";
 

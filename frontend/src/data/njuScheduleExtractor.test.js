@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   NJU_AUTH_SCHEDULE_URL,
+  NJU_PORTAL_SCHEDULE_ENTRY_URL,
   NJU_SCHEDULE_EXTRACTOR_SCRIPT,
   NJU_UNDERGRAD_SCHEDULE_TARGET_URL,
   mapNjuSchedulePayloadToFixedClasses,
@@ -12,6 +13,8 @@ describe("NJU schedule extractor bridge", () => {
   it("exposes the auth URL and target URL used by the WebView importer", () => {
     assert.ok(NJU_AUTH_SCHEDULE_URL.includes("authserver.nju.edu.cn"));
     assert.ok(NJU_AUTH_SCHEDULE_URL.includes(encodeURIComponent(NJU_UNDERGRAD_SCHEDULE_TARGET_URL)));
+    assert.ok(NJU_PORTAL_SCHEDULE_ENTRY_URL.includes("ehall.nju.edu.cn/portal/html/select_role.html"));
+    assert.ok(NJU_PORTAL_SCHEDULE_ENTRY_URL.includes("appId=7170579276974719"));
   });
 
   it("keeps an injectable script that returns encoded schedule JSON", () => {
