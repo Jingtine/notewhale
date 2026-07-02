@@ -22,6 +22,7 @@ import {
   writeUserStorageArray,
   writeUserStorageValue,
 } from "../data/userStorage";
+import { generateStudyPlanBlocks } from "../data/schedulePlanner";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const START_HOUR = 8;
@@ -29,6 +30,7 @@ const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
+const STUDY_PLAN_STORAGE_KEY = "studyPlanBlocks";
 const NJU_TEACHING_DIRECT_URL = NJU_AUTH_SCHEDULE_URL;
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
@@ -42,6 +44,9 @@ function SchedulePage({ user = null, onLogout } = {}) {
   );
   const [semesterStartMonday, setSemesterStartMonday] = useState(() =>
     readUserStorageValue(user, SCHEDULE_SEMESTER_START_KEY, "")
+  );
+  const [studyPlanBlocks, setStudyPlanBlocks] = useState(() =>
+    readUserStorageArray(user, STUDY_PLAN_STORAGE_KEY, [])
   );
   const [folders, setFolders] = useState(() =>
     readUserStorageArray(user, "folders", [], { legacyKey: "folders" })
@@ -81,6 +86,13 @@ function SchedulePage({ user = null, onLogout } = {}) {
       fixedClasses.filter((item) => isClassVisibleInTeachingWeek(item, teachingWeek)),
     [fixedClasses, teachingWeek]
   );
+  const weekStudyPlanBlocks = useMemo(
+    () =>
+      studyPlanBlocks
+        .filter((item) => isWithinWeek(parseScheduleDate(item.date), currentWeek))
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)),
+    [studyPlanBlocks, currentWeek]
+  );
   const weekDdls = useMemo(
     () =>
       ddls
@@ -119,6 +131,19 @@ function SchedulePage({ user = null, onLogout } = {}) {
     return result;
   }, [weekDdls]);
 
+  const studyBlocksByDay = useMemo(() => {
+    const result = new Map(WEEKDAYS.map((_, index) => [index + 1, []]));
+
+    weekStudyPlanBlocks.forEach((item) => {
+      const day = Number(item.day);
+      if (!result.has(day)) return;
+
+      result.get(day).push(item);
+    });
+
+    return result;
+  }, [weekStudyPlanBlocks]);
+
   useEffect(() => {
     writeStorageValue("darkMode", darkMode);
   }, [darkMode]);
@@ -126,6 +151,10 @@ function SchedulePage({ user = null, onLogout } = {}) {
   useEffect(() => {
     writeUserStorageArray(user, SCHEDULE_STORAGE_KEY, fixedClasses);
   }, [fixedClasses, user]);
+
+  useEffect(() => {
+    writeUserStorageArray(user, STUDY_PLAN_STORAGE_KEY, studyPlanBlocks);
+  }, [studyPlanBlocks, user]);
 
   useEffect(() => {
     writeUserStorageValue(user, SCHEDULE_SEMESTER_START_KEY, semesterStartMonday);
@@ -201,6 +230,31 @@ function SchedulePage({ user = null, onLogout } = {}) {
 
   function deleteFixedClass(classId) {
     setFixedClasses((prev) => prev.filter((item) => item.id !== classId));
+  }
+
+  function deleteStudyPlanBlock(blockId) {
+    setStudyPlanBlocks((prev) => prev.filter((item) => item.id !== blockId));
+  }
+
+  function generateWeeklyStudyPlan() {
+    const generatedBlocks = generateStudyPlanBlocks({
+      weekStart: currentWeek,
+      fixedClasses: visibleFixedClasses,
+      ddls,
+      courses,
+      existingBlocks: [],
+    });
+
+    setStudyPlanBlocks((prev) => [
+      ...prev.filter((item) => !isWithinWeek(parseScheduleDate(item.date), currentWeek)),
+      ...generatedBlocks,
+    ]);
+  }
+
+  function clearWeeklyStudyPlan() {
+    setStudyPlanBlocks((prev) =>
+      prev.filter((item) => !isWithinWeek(parseScheduleDate(item.date), currentWeek))
+    );
   }
 
   function openNjuTeachingPortal(url = NJU_TEACHING_PORTAL_URL, direct = false) {
@@ -299,6 +353,10 @@ function SchedulePage({ user = null, onLogout } = {}) {
 
   const fixedClassCount = fixedClasses.length;
   const visibleFixedClassCount = visibleFixedClasses.length;
+  const plannedHours = weekStudyPlanBlocks.reduce((sum, item) => {
+    const duration = Math.max(0, timeToMinutes(item.endTime) - timeToMinutes(item.startTime));
+    return sum + duration / 60;
+  }, 0);
   const lockedHours = visibleFixedClasses.reduce((sum, item) => {
     const duration = Math.max(0, timeToMinutes(item.endTime) - timeToMinutes(item.startTime));
     return sum + duration / 60;
@@ -388,6 +446,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <div style={statsGridStyle}>
             <StatCard label="本周课程" value={visibleFixedClassCount} detail={`固定课表共 ${fixedClassCount} 项`} colors={colors} />
             <StatCard label="本周 DDL" value={weekDdls.length} detail="待处理截止项" colors={colors} />
+            <StatCard label="复习规划" value={weekStudyPlanBlocks.length} detail={`${plannedHours.toFixed(1)} 小时已安排`} colors={colors} />
             <StatCard label="已锁定时间" value={lockedHours.toFixed(1)} detail="小时 / 每周" colors={colors} />
             <StatCard label="当前账号" value={currentUser.name} detail={currentUser.account || "本地体验账号"} colors={colors} />
           </div>
@@ -407,6 +466,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
               const isoDay = index + 1;
               const classBlocks = classBlocksByDay.get(isoDay) || [];
               const ddlBlocks = ddlBlocksByDay.get(isoDay) || [];
+              const studyBlocks = studyBlocksByDay.get(isoDay) || [];
 
               return (
                 <div key={day.key} style={dayColumnStyle(colors)}>
@@ -429,6 +489,16 @@ function SchedulePage({ user = null, onLogout } = {}) {
                       />
                     ))}
 
+                    {studyBlocks.map((item) => (
+                      <ScheduleBlock
+                        key={item.id}
+                        item={item}
+                        colors={colors}
+                        type="study"
+                        onDelete={() => deleteStudyPlanBlock(item.id)}
+                      />
+                    ))}
+
                     {ddlBlocks.map(({ ddl, date }) => (
                       <ScheduleBlock
                         key={ddl.id}
@@ -444,7 +514,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                       />
                     ))}
 
-                    {classBlocks.length === 0 && ddlBlocks.length === 0 && (
+                    {classBlocks.length === 0 && studyBlocks.length === 0 && ddlBlocks.length === 0 && (
                       <div style={emptyDayStyle(colors)}>空余</div>
                     )}
                   </div>
@@ -625,9 +695,38 @@ function SchedulePage({ user = null, onLogout } = {}) {
               <PlanningLine colors={colors} active={fixedClasses.length > 0} text="已录入固定课表" />
               <PlanningLine colors={colors} active={Boolean(semesterStartMonday)} text="已设置教学周过滤" />
               <PlanningLine colors={colors} active={weekDdls.length > 0} text="已有 DDL 截止时间" />
-              <PlanningLine colors={colors} active={false} text="下一步：按空余时间生成复习块" />
+              <PlanningLine colors={colors} active={weekStudyPlanBlocks.length > 0} text="已生成本周复习块" />
               <PlanningLine colors={colors} active={false} text="下一步：拖拽调整日程" />
             </div>
+          </section>
+
+          <section style={panelCardStyle(colors)}>
+            <h2 style={panelTitleStyle(colors)}>自动复习规划</h2>
+            <p style={panelTextStyle(colors)}>
+              根据本周 DDL 和固定课表，优先把复习块放在截止前的空余时间。
+            </p>
+            <div style={importActionRowStyle}>
+              <button type="button" onClick={generateWeeklyStudyPlan} style={primaryButtonStyle(colors)}>
+                生成本周规划
+              </button>
+              <button type="button" onClick={clearWeeklyStudyPlan} style={outlineButtonStyle(colors)}>
+                清空本周
+              </button>
+            </div>
+            {weekStudyPlanBlocks.length === 0 ? (
+              <p style={panelTextStyle(colors)}>本周还没有复习块。</p>
+            ) : (
+              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                {weekStudyPlanBlocks.slice(0, 5).map((item) => (
+                  <div key={item.id} style={ddlMiniCardStyle(colors)}>
+                    <strong style={{ color: colors.title, fontSize: "13px" }}>{item.title}</strong>
+                    <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
+                      {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime} · {item.courseName}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section style={panelCardStyle(colors)}>
@@ -661,6 +760,14 @@ function ScheduleBlock({ item, colors, type, onDelete }) {
   const top = ((start - START_HOUR * 60) / 60) * HOUR_HEIGHT;
   const height = Math.max(38, ((end - start) / 60) * HOUR_HEIGHT);
   const isDdl = type === "ddl";
+  const isStudy = type === "study";
+  const blockBg = isDdl ? colors.ddlBg : isStudy ? colors.studyBg : colors.classBg;
+  const blockBorder = isDdl
+    ? colors.warningBorder
+    : isStudy
+      ? colors.studyBorder
+      : colors.activeBorder;
+  const blockText = isDdl ? colors.warningText : isStudy ? colors.studyText : colors.activeText;
 
   return (
     <div
@@ -673,11 +780,11 @@ function ScheduleBlock({ item, colors, type, onDelete }) {
         borderRadius: "12px",
         padding: "9px 10px",
         boxSizing: "border-box",
-        background: isDdl ? colors.ddlBg : colors.classBg,
-        border: `1px solid ${isDdl ? colors.warningBorder : colors.activeBorder}`,
-        color: isDdl ? colors.warningText : colors.activeText,
+        background: blockBg,
+        border: `1px solid ${blockBorder}`,
+        color: blockText,
         overflow: "hidden",
-        zIndex: isDdl ? 3 : 2,
+        zIndex: isDdl ? 4 : isStudy ? 3 : 2,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
@@ -739,6 +846,9 @@ function buildColors(darkMode) {
     activeBorder: darkMode ? "rgba(147,197,253,0.34)" : "rgba(37,99,235,0.22)",
     classBg: darkMode ? "rgba(37,99,235,0.20)" : "#EEF5FF",
     ddlBg: darkMode ? "rgba(245,158,11,0.18)" : "#FFF7ED",
+    studyBg: darkMode ? "rgba(16,185,129,0.18)" : "#ECFDF5",
+    studyText: darkMode ? "#A7F3D0" : "#047857",
+    studyBorder: darkMode ? "rgba(16,185,129,0.34)" : "rgba(16,185,129,0.30)",
     warningText: darkMode ? "#FCD34D" : "#B45309",
     warningBorder: darkMode ? "rgba(245,158,11,0.34)" : "rgba(245,158,11,0.30)",
     success: "#10B981",

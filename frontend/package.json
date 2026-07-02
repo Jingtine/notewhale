@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/data/learningItemMappers.test.js src/data/courseFolderStore.test.js src/data/userStorage.test.js src/data/resourceMappers.test.js src/data/courseMetrics.test.js src/data/globalSearch.test.js src/data/homeFolderView.test.js src/data/aiModelSettings.test.js src/data/scheduleImport.test.js src/data/njuScheduleExtractor.test.js",
+    "test": "node --test src/data/learningItemMappers.test.js src/data/courseFolderStore.test.js src/data/userStorage.test.js src/data/resourceMappers.test.js src/data/courseMetrics.test.js src/data/globalSearch.test.js src/data/homeFolderView.test.js src/data/aiModelSettings.test.js src/data/scheduleImport.test.js src/data/njuScheduleExtractor.test.js src/data/schedulePlanner.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
