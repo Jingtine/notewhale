@@ -253,47 +253,28 @@ function LoginPage({ onLogin }) {
 
   return (
     <div style={pageStyle}>
-      <div style={decorCircleOne} />
-      <div style={decorCircleTwo} />
-
       <main style={layoutStyle}>
         <section style={brandPanelStyle}>
           <div style={brandTopStyle}>
             <img src={logo} alt="NoteWhale logo" style={logoStyle} />
             <div>
-              <div style={brandNameStyle}>鲸记 NoteWhale</div>
-              <div style={brandSubStyle}>课程资料 · AI 笔记 · DDL 管理</div>
+              <div style={brandNameStyle}>NoteWhale</div>
+              <div style={brandSubStyle}>课程资料与学习日程</div>
             </div>
           </div>
 
           <h1 style={heroTitleStyle}>
-            让课程资料变成
-            <br />
-            可复习的知识空间
+            登录你的学习空间
           </h1>
 
           <p style={heroTextStyle}>
-            当前版本已接入真实账号登录、用户数据隔离与数据库同步。
-            换一台设备登录同一账号，也可以读取该账号的课程、DDL、笔记与资料记录。
+            课程、笔记、资料和 DDL 会按账号保存。打开后直接回到你的学习现场。
           </p>
-
-          <div style={featureGridStyle}>
-            <FeatureCard title="资料沉淀" text="统一保存课件、讲义与参考材料" />
-            <FeatureCard title="笔记编辑" text="支持文档、Markdown 与符号输入" />
-            <FeatureCard title="DDL 追踪" text="按课程聚合截止时间与任务状态" />
-          </div>
 
           <div style={statusStripStyle}>
             <span style={{ ...statusDotStyle, background: apiBadge.dot }} />
             <span style={{ color: apiBadge.color, fontWeight: 700 }}>
               {apiBadge.text}
-            </span>
-            <span style={{ color: "#64748B" }}>
-              {apiState === "online"
-                ? "账号登录、同步和资料接口可用"
-                : desktopStatus.available
-                  ? desktopStatus.message
-                  : "后端未启动时仍可完成前端演示"}
             </span>
           </div>
         </section>
@@ -302,13 +283,8 @@ function LoginPage({ onLogin }) {
           <div style={cardHeaderStyle}>
             <div>
               <h2 style={cardTitleStyle}>
-                {mode === "login" ? "登录学习空间" : "创建体验账号"}
+                {mode === "login" ? "登录" : "注册"}
               </h2>
-              <p style={cardTextStyle}>
-                {mode === "login"
-                  ? "输入账号和密码，进入你的云端学习空间。"
-                  : "创建账号后，课程、DDL、笔记会按账号保存。"}
-              </p>
             </div>
 
             <span
@@ -388,15 +364,6 @@ function LoginPage({ onLogin }) {
             }}
           />
 
-          {mode === "login" && (
-            <div style={loginTipStyle}>
-              <div style={loginTipTitleStyle}>账号数据云端同步</div>
-              <div style={loginTipTextStyle}>
-                登录后会自动读取该账号下的课程、DDL、笔记与资料记录。
-              </div>
-            </div>
-          )}
-
           {error && (
             <div style={errorStyle}>
               <span style={errorDotStyle} />
@@ -430,88 +397,34 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function FeatureCard({ title, text }) {
-  return (
-    <div style={featureCardStyle}>
-      <strong style={{ color: "#183B63", fontSize: "14px" }}>{title}</strong>
-      <p style={{ margin: "8px 0 0", color: "#64748B", fontSize: "13px", lineHeight: 1.6 }}>
-        {text}
-      </p>
-    </div>
-  );
-}
-
 function ServiceStatusPanel({ apiState, desktopStatus, loading, onRetry }) {
   const isOnline = apiState === "online";
   const toneColor = isOnline ? "#10B981" : "#F59E0B";
   const desktopLabel = desktopStatus.available
     ? desktopStatus.label
     : "浏览器环境";
-  const modeText = desktopStatus.available
-    ? desktopStatus.managed
-      ? "桌面托管"
-      : "外部服务"
-    : "外部服务";
 
   return (
     <div style={servicePanelStyle}>
-      <div style={serviceHeaderStyle}>
-        <div>
-          <div style={serviceEyebrowStyle}>登录服务</div>
-          <strong style={serviceTitleStyle}>
-            {isOnline ? "账号服务已就绪" : desktopLabel}
-          </strong>
-        </div>
-        <button
-          type="button"
-          onClick={onRetry}
-          disabled={loading}
-          style={serviceRetryButtonStyle(loading)}
-        >
-          重新检测
-        </button>
-      </div>
-
-      <div style={serviceMetaGridStyle}>
-        <ServiceMeta
-          label="API"
-          value={isOnline ? "在线" : "未连接"}
-          color={toneColor}
-        />
-        <ServiceMeta
-          label="桌面"
-          value={desktopStatus.available ? "已启用" : "未启用"}
-          color={desktopStatus.available ? "#2563EB" : "#64748B"}
-        />
-        <ServiceMeta
-          label="方式"
-          value={modeText}
-          color="#183B63"
-        />
-      </div>
-
-      <p style={serviceMessageStyle}>
-        {isOnline
-          ? "可以登录或注册账号，课程、DDL、笔记和资料会按账号同步。"
-          : desktopStatus.message}
-      </p>
-    </div>
-  );
-}
-
-function ServiceMeta({ label, value, color }) {
-  return (
-    <div style={serviceMetaStyle}>
-      <span style={serviceMetaLabelStyle}>{label}</span>
-      <strong style={{ ...serviceMetaValueStyle, color }}>{value}</strong>
+      <span style={{ ...statusDotStyle, background: toneColor }} />
+      <span style={{ color: isOnline ? "#047857" : "#B45309", fontWeight: 850 }}>
+        {isOnline ? "账号服务可用" : desktopLabel}
+      </span>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={loading}
+        style={serviceRetryButtonStyle(loading)}
+      >
+        刷新
+      </button>
     </div>
   );
 }
 
 const pageStyle = {
   minHeight: "100vh",
-  background:
-    "radial-gradient(circle at 10% 10%, rgba(147,197,253,0.32), transparent 34%), linear-gradient(180deg,#F6FAFF 0%,#EEF6FF 100%)",
+  background: "linear-gradient(180deg,#F6FAFF 0%,#EEF6FF 100%)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -524,30 +437,10 @@ const pageStyle = {
   overflow: "hidden",
 };
 
-const decorCircleOne = {
-  position: "absolute",
-  width: "360px",
-  height: "360px",
-  borderRadius: "50%",
-  background: "rgba(59,130,246,0.10)",
-  top: "-120px",
-  right: "-90px",
-};
-
-const decorCircleTwo = {
-  position: "absolute",
-  width: "280px",
-  height: "280px",
-  borderRadius: "50%",
-  background: "rgba(167,139,250,0.11)",
-  bottom: "-100px",
-  left: "-80px",
-};
-
 const layoutStyle = {
-  width: "min(1080px, 100%)",
+  width: "min(960px, 100%)",
   display: "grid",
-  gridTemplateColumns: "1.08fr 0.92fr",
+  gridTemplateColumns: "0.9fr 1fr",
   gap: "24px",
   position: "relative",
   zIndex: 1,
@@ -555,8 +448,8 @@ const layoutStyle = {
 };
 
 const brandPanelStyle = {
-  height: "640px",
-  minHeight: "640px",
+  height: "560px",
+  minHeight: "560px",
   borderRadius: "24px",
   padding: "36px",
   background: "rgba(255,255,255,0.72)",
@@ -595,11 +488,11 @@ const brandSubStyle = {
 };
 
 const heroTitleStyle = {
-  margin: "78px 0 18px",
+  margin: "92px 0 16px",
   color: "#132F4F",
-  fontSize: "44px",
+  fontSize: "40px",
   lineHeight: 1.16,
-  letterSpacing: "-0.06em",
+  letterSpacing: 0,
   fontWeight: 850,
 };
 
@@ -611,23 +504,9 @@ const heroTextStyle = {
   maxWidth: "520px",
 };
 
-const featureGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: "12px",
-  marginTop: "44px",
-};
-
-const featureCardStyle = {
-  background: "rgba(248,250,252,0.82)",
-  border: "1px solid #E2E8F0",
-  borderRadius: "16px",
-  padding: "16px",
-};
-
 const statusStripStyle = {
   marginTop: "auto",
-  height: "48px",
+  height: "42px",
   borderRadius: "14px",
   border: "1px solid #E2E8F0",
   background: "rgba(248,250,252,0.78)",
@@ -646,8 +525,8 @@ const statusDotStyle = {
 };
 
 const loginCardStyle = {
-  height: "640px",
-  minHeight: "640px",
+  height: "560px",
+  minHeight: "560px",
   background: "rgba(255,255,255,0.94)",
   border: "1px solid #E2E8F0",
   borderRadius: "22px",
@@ -664,22 +543,15 @@ const cardHeaderStyle = {
   alignItems: "flex-start",
   justifyContent: "space-between",
   gap: "16px",
-  marginBottom: "22px",
+  marginBottom: "18px",
 };
 
 const cardTitleStyle = {
   margin: 0,
   color: "#183B63",
-  fontSize: "26px",
+  fontSize: "28px",
   fontWeight: 850,
-  letterSpacing: "-0.04em",
-};
-
-const cardTextStyle = {
-  margin: "8px 0 0",
-  color: "#64748B",
-  fontSize: "13px",
-  lineHeight: 1.7,
+  letterSpacing: 0,
 };
 
 const apiBadgeStyle = {
@@ -695,36 +567,19 @@ const apiBadgeStyle = {
 
 const servicePanelStyle = {
   border: "1px solid #DDE8F7",
-  borderRadius: "16px",
+  borderRadius: "13px",
   background: "#F8FBFF",
-  padding: "14px",
-  marginBottom: "18px",
-};
-
-const serviceHeaderStyle = {
+  minHeight: "38px",
+  padding: "0 10px",
+  marginBottom: "16px",
   display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "12px",
-};
-
-const serviceEyebrowStyle = {
-  color: "#64748B",
-  fontSize: "12px",
-  fontWeight: 800,
-};
-
-const serviceTitleStyle = {
-  display: "block",
-  color: "#183B63",
-  fontSize: "16px",
-  fontWeight: 900,
-  marginTop: "4px",
+  alignItems: "center",
+  gap: "8px",
 };
 
 function serviceRetryButtonStyle(disabled) {
   return {
-    height: "32px",
+    height: "28px",
     border: "1px solid #BFDBFE",
     borderRadius: "10px",
     background: "#FFFFFF",
@@ -735,47 +590,9 @@ function serviceRetryButtonStyle(disabled) {
     padding: "0 10px",
     opacity: disabled ? 0.62 : 1,
     flexShrink: 0,
+    marginLeft: "auto",
   };
 }
-
-const serviceMetaGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: "8px",
-  marginTop: "12px",
-};
-
-const serviceMetaStyle = {
-  minWidth: 0,
-  border: "1px solid #E2E8F0",
-  borderRadius: "12px",
-  background: "#FFFFFF",
-  padding: "9px 10px",
-};
-
-const serviceMetaLabelStyle = {
-  display: "block",
-  color: "#94A3B8",
-  fontSize: "11px",
-  fontWeight: 850,
-};
-
-const serviceMetaValueStyle = {
-  display: "block",
-  marginTop: "4px",
-  fontSize: "13px",
-  fontWeight: 900,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const serviceMessageStyle = {
-  margin: "10px 0 0",
-  color: "#64748B",
-  fontSize: "12px",
-  lineHeight: 1.6,
-};
 
 const smallDotStyle = {
   width: "7px",
@@ -851,27 +668,6 @@ const errorDotStyle = {
   borderRadius: "50%",
   background: "#F59E0B",
   flexShrink: 0,
-};
-
-const loginTipStyle = {
-  marginTop: "18px",
-  border: "1px solid #E2E8F0",
-  borderRadius: "14px",
-  background: "#F8FAFC",
-  padding: "14px 16px",
-};
-
-const loginTipTitleStyle = {
-  color: "#183B63",
-  fontSize: "13px",
-  fontWeight: 850,
-};
-
-const loginTipTextStyle = {
-  marginTop: "6px",
-  color: "#64748B",
-  fontSize: "13px",
-  lineHeight: 1.7,
 };
 
 const actionAreaStyle = {
