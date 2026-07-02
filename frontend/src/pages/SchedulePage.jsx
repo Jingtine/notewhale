@@ -11,8 +11,10 @@ import { parseScheduleImportText } from "../data/scheduleImport";
 import {
   readStorageBoolean,
   readUserStorageArray,
+  readUserStorageValue,
   writeStorageValue,
   writeUserStorageArray,
+  writeUserStorageValue,
 } from "../data/userStorage";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -20,6 +22,7 @@ const START_HOUR = 8;
 const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
+const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
 const NJU_TEACHING_DIRECT_URL =
   "https://authserver.nju.edu.cn/authserver/login?service=https%3A%2F%2Fehallapp.nju.edu.cn%2Fjwapp%2Fsys%2Fwdkb%2F*default%2Findex.do%23%2Fxskcb";
 const NJU_TEACHING_PORTAL_URL =
@@ -31,6 +34,9 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [currentWeek, setCurrentWeek] = useState(() => startOfWeek(new Date()));
   const [fixedClasses, setFixedClasses] = useState(() =>
     readUserStorageArray(user, SCHEDULE_STORAGE_KEY, [])
+  );
+  const [semesterStartMonday, setSemesterStartMonday] = useState(() =>
+    readUserStorageValue(user, SCHEDULE_SEMESTER_START_KEY, "")
   );
   const [folders, setFolders] = useState(() =>
     readUserStorageArray(user, "folders", [], { legacyKey: "folders" })
@@ -60,6 +66,15 @@ function SchedulePage({ user = null, onLogout } = {}) {
     () => folders.flatMap((folder) => folder.courses || folder.items || []),
     [folders]
   );
+  const teachingWeek = useMemo(
+    () => getTeachingWeek(currentWeek, semesterStartMonday),
+    [currentWeek, semesterStartMonday]
+  );
+  const visibleFixedClasses = useMemo(
+    () =>
+      fixedClasses.filter((item) => isClassVisibleInTeachingWeek(item, teachingWeek)),
+    [fixedClasses, teachingWeek]
+  );
   const weekDdls = useMemo(
     () =>
       ddls
@@ -73,7 +88,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const classBlocksByDay = useMemo(() => {
     const result = new Map(WEEKDAYS.map((_, index) => [index + 1, []]));
 
-    fixedClasses.forEach((item) => {
+    visibleFixedClasses.forEach((item) => {
       const day = Number(item.day);
       if (!result.has(day)) return;
 
@@ -85,7 +100,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
     });
 
     return result;
-  }, [fixedClasses]);
+  }, [visibleFixedClasses]);
 
   const ddlBlocksByDay = useMemo(() => {
     const result = new Map(WEEKDAYS.map((_, index) => [index + 1, []]));
@@ -105,6 +120,10 @@ function SchedulePage({ user = null, onLogout } = {}) {
   useEffect(() => {
     writeUserStorageArray(user, SCHEDULE_STORAGE_KEY, fixedClasses);
   }, [fixedClasses, user]);
+
+  useEffect(() => {
+    writeUserStorageValue(user, SCHEDULE_SEMESTER_START_KEY, semesterStartMonday);
+  }, [semesterStartMonday, user]);
 
   useEffect(() => {
     let alive = true;
@@ -235,7 +254,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
   }
 
   const fixedClassCount = fixedClasses.length;
-  const lockedHours = fixedClasses.reduce((sum, item) => {
+  const visibleFixedClassCount = visibleFixedClasses.length;
+  const lockedHours = visibleFixedClasses.reduce((sum, item) => {
     const duration = Math.max(0, timeToMinutes(item.endTime) - timeToMinutes(item.startTime));
     return sum + duration / 60;
   }, 0);
@@ -305,6 +325,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
               </h2>
               <p style={{ margin: "6px 0 0", color: colors.text, fontSize: "13px" }}>
                 {syncMessage}
+                {teachingWeek ? ` · 当前第 ${teachingWeek} 教学周` : ""}
               </p>
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -321,7 +342,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           </div>
 
           <div style={statsGridStyle}>
-            <StatCard label="固定课程" value={fixedClassCount} detail="锁定上课时间" colors={colors} />
+            <StatCard label="本周课程" value={visibleFixedClassCount} detail={`固定课表共 ${fixedClassCount} 项`} colors={colors} />
             <StatCard label="本周 DDL" value={weekDdls.length} detail="待处理截止项" colors={colors} />
             <StatCard label="已锁定时间" value={lockedHours.toFixed(1)} detail="小时 / 每周" colors={colors} />
             <StatCard label="当前账号" value={currentUser.name} detail={currentUser.account || "本地体验账号"} colors={colors} />
@@ -416,6 +437,29 @@ function SchedulePage({ user = null, onLogout } = {}) {
               </button>
             </div>
             <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
+              <span>本学期第 1 周周一</span>
+              <div style={semesterInputRowStyle}>
+                <input
+                  type="date"
+                  value={semesterStartMonday}
+                  onChange={(event) => setSemesterStartMonday(event.target.value)}
+                  style={inputStyle(colors)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setSemesterStartMonday(formatDateInput(currentWeek))}
+                  style={outlineButtonStyle(colors)}
+                >
+                  设为本周
+                </button>
+              </div>
+            </label>
+            <p style={importMessageStyle(colors)}>
+              {teachingWeek
+                ? `当前视图按第 ${teachingWeek} 教学周显示导入课程。`
+                : "未设置学期起始周时，导入课程会在每周视图中显示。"}
+            </p>
+            <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
               <span>粘贴课表 / 导入 CSV、TXT</span>
               <input
                 type="file"
@@ -439,7 +483,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     <span>
                       {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime}
                     </span>
-                    <span>{item.location || "未填写地点"}</span>
+                    <span>{buildClassMetaText(item) || item.location || "未填写地点"}</span>
                   </div>
                 ))}
               </div>
@@ -530,6 +574,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
             <h2 style={panelTitleStyle(colors)}>规划准备度</h2>
             <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
               <PlanningLine colors={colors} active={fixedClasses.length > 0} text="已录入固定课表" />
+              <PlanningLine colors={colors} active={Boolean(semesterStartMonday)} text="已设置教学周过滤" />
               <PlanningLine colors={colors} active={weekDdls.length > 0} text="已有 DDL 截止时间" />
               <PlanningLine colors={colors} active={false} text="下一步：按空余时间生成复习块" />
               <PlanningLine colors={colors} active={false} text="下一步：拖拽调整日程" />
@@ -600,6 +645,11 @@ function ScheduleBlock({ item, colors, type, onDelete }) {
       <div style={{ fontSize: "11px", marginTop: "4px", opacity: 0.78 }}>
         {item.location || item.courseName || "固定时间"}
       </div>
+      {buildClassMetaText(item, { includeLocation: false }) && (
+        <div style={{ fontSize: "10px", marginTop: "4px", opacity: 0.72 }}>
+          {buildClassMetaText(item, { includeLocation: false })}
+        </div>
+      )}
     </div>
   );
 }
@@ -691,9 +741,35 @@ function isToday(date) {
   return date.toDateString() === today.toDateString();
 }
 
+function getTeachingWeek(weekStart, semesterStartMonday) {
+  const start = parseDateInput(semesterStartMonday);
+  if (!start) return null;
+
+  const normalizedStart = startOfWeek(start);
+  const diff = weekStart.getTime() - normalizedStart.getTime();
+  const week = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+
+  return week > 0 ? week : null;
+}
+
+function isClassVisibleInTeachingWeek(item, teachingWeek) {
+  if (!Array.isArray(item.weeks) || item.weeks.length === 0) return true;
+  if (!teachingWeek) return true;
+
+  return item.weeks.includes(teachingWeek);
+}
+
 function parseScheduleDate(value) {
   if (!value) return null;
   const date = new Date(String(value).replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseDateInput(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -721,6 +797,32 @@ function formatMonthDay(date) {
 function formatWeekRange(weekStart) {
   const end = addDays(weekStart, 6);
   return `${weekStart.getFullYear()} 年 ${formatMonthDay(weekStart)} - ${formatMonthDay(end)}`;
+}
+
+function formatDateInput(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function buildClassMetaText(item, options = {}) {
+  const includeLocation = options.includeLocation !== false;
+  const parts = [
+    includeLocation ? item.location : "",
+    item.teacher ? `教师 ${item.teacher}` : "",
+    item.weekText || formatWeeks(item.weeks),
+    item.classNumber ? `课号 ${item.classNumber}` : "",
+  ].filter(Boolean);
+
+  return parts.join(" · ");
+}
+
+function formatWeeks(weeks) {
+  if (!Array.isArray(weeks) || weeks.length === 0) return "";
+
+  return `${weeks.join(",")}周`;
 }
 
 const pageGridStyle = {
@@ -926,6 +1028,12 @@ const importActionRowStyle = {
   gridTemplateColumns: "repeat(auto-fit, minmax(94px, 1fr))",
   gap: "10px",
   marginTop: "14px",
+};
+
+const semesterInputRowStyle = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gap: "10px",
 };
 
 function fileInputStyle(colors) {

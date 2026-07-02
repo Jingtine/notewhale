@@ -31,6 +31,21 @@ export function writeUserStorageArray(user, key, value) {
   localStorage.setItem(getUserStorageKey(user, key), JSON.stringify(value));
 }
 
+export function readUserStorageValue(user, key, fallback = null) {
+  try {
+    const value = localStorage.getItem(getUserStorageKey(user, key));
+    if (value === null) return fallback;
+
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeUserStorageValue(user, key, value) {
+  localStorage.setItem(getUserStorageKey(user, key), JSON.stringify(value));
+}
+
 export function readStorageArray(key, fallback = []) {
   return readArrayFromStorage(key, fallback);
 }

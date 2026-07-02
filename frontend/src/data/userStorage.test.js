@@ -7,9 +7,11 @@ import {
   readStorageArray,
   readStorageBoolean,
   readUserStorageArray,
+  readUserStorageValue,
   writeStorageArray,
   writeStorageValue,
   writeUserStorageArray,
+  writeUserStorageValue,
 } from "./userStorage.js";
 
 function createMemoryStorage() {
@@ -60,6 +62,19 @@ describe("user storage", () => {
     assert.deepEqual(
       readUserStorageArray({ id: "student-1" }, "notes"),
       notes
+    );
+  });
+
+  it("writes and reads user-scoped values", () => {
+    writeUserStorageValue({ id: "student-1" }, "semesterStartMonday", "2026-03-02");
+
+    assert.equal(
+      readUserStorageValue({ id: "student-1" }, "semesterStartMonday", ""),
+      "2026-03-02"
+    );
+    assert.equal(
+      readUserStorageValue({ id: "student-2" }, "semesterStartMonday", "unset"),
+      "unset"
     );
   });
 
