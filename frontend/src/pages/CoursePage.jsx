@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Footer from "../components/Footer";
+import AiModelSettingsPanel from "../components/AiModelSettingsPanel";
 import {
   getNotes as getBackendNotes,
   getAiStatus,
@@ -30,6 +31,12 @@ import {
   writeStorageArray,
   writeStorageValue,
 } from "../data/userStorage";
+import {
+  getAiModelOverride,
+  hasCompleteAiModelOverride,
+  readAiModelSettings,
+  writeAiModelSettings,
+} from "../data/aiModelSettings";
 import { mapBackendDdl, mapBackendNote } from "../data/learningItemMappers";
 import {
   createLocalResource,
@@ -97,9 +104,38 @@ function CoursePage({ user = null, onLogout } = {}) {
   const [aiNoteStatus, setAiNoteStatus] = useState("");
   const [aiNoteGeneratingResourceId, setAiNoteGeneratingResourceId] = useState(null);
   const [aiNoteStyle, setAiNoteStyle] = useState(NOTE_STYLE_OPTIONS[0]);
+  const [aiStatus, setAiStatus] = useState(null);
+  const [aiModelSettings, setAiModelSettingsState] = useState(() =>
+    readAiModelSettings()
+  );
 
   const [backendCourses, setBackendCourses] = useState([]);
   const [backendCourseLoading, setBackendCourseLoading] = useState(false);
+
+  function saveAiModelSettings(nextSettings) {
+    setAiModelSettingsState(writeAiModelSettings(nextSettings));
+  }
+
+  useEffect(() => {
+    if (activeTab !== "settings") return;
+
+    let alive = true;
+
+    async function loadAiStatus() {
+      try {
+        const status = await getAiStatus();
+        if (alive) setAiStatus(status);
+      } catch {
+        if (alive) setAiStatus(null);
+      }
+    }
+
+    loadAiStatus();
+
+    return () => {
+      alive = false;
+    };
+  }, [activeTab]);
 
   const isBackendRoute = String(id).startsWith("api-");
   const backendRouteId = isBackendRoute ? String(id).replace(/^api-/, "") : null;
@@ -539,6 +575,7 @@ function CoursePage({ user = null, onLogout } = {}) {
         file,
         courseId: course.backendSynced ? course.backendId : null,
         courseName: course.title || "未归属课程",
+        aiVisionModel: getAiModelOverride(aiModelSettings, "vision"),
       });
 
       setScheduleTitle(result.title || "");
@@ -594,13 +631,16 @@ function CoursePage({ user = null, onLogout } = {}) {
 
     try {
       const aiStatus = await getAiStatus();
+      const customTextModel = getAiModelOverride(aiModelSettings, "text");
+      const hasCustomTextModel = hasCompleteAiModelOverride(aiModelSettings, "text");
 
-      if (!aiStatus?.text?.configured) {
+      if (!aiStatus?.text?.configured && !hasCustomTextModel) {
         alert(aiStatus?.text?.message || "文本模型未配置完整，请检查 backend/.env。");
         return;
       }
 
-      const modelLabel = aiStatus.text.model ? `（${aiStatus.text.model}）` : "";
+      const activeTextModel = customTextModel?.model || aiStatus.text.model || "";
+      const modelLabel = activeTextModel ? `（${activeTextModel}）` : "";
       const textLength = Number(targetResource.extractedTextLength || 0);
       const longDocumentHint =
         textLength > 6500 ? "长文档将先分段整理，如输出中断会自动续写。" : "这可能需要几十秒。";
@@ -612,6 +652,7 @@ function CoursePage({ user = null, onLogout } = {}) {
         resourceName: targetResource.name || "课程资料",
         resourceId: targetResource.backendId,
         noteStyle: aiNoteStyle,
+        aiTextModel: customTextModel,
       });
 
       const generatedTitle = generated.title || `${course.title} · AI资料笔记`;
@@ -1026,6 +1067,10 @@ function CoursePage({ user = null, onLogout } = {}) {
                   completedDdls={completedDdls}
                   courseNotes={courseNotes}
                   courseResources={courseResources}
+                  aiModelSettings={aiModelSettings}
+                  setAiModelSettings={saveAiModelSettings}
+                  aiStatus={aiStatus}
+                  darkMode={darkMode}
                 />
               )}
             </section>
@@ -2251,6 +2296,10 @@ function SettingsTab({
   completedDdls,
   courseNotes,
   courseResources,
+  aiModelSettings,
+  setAiModelSettings,
+  aiStatus,
+  darkMode,
 }) {
   return (
     <div style={contentCardStyle(colors)}>
@@ -2274,6 +2323,25 @@ function SettingsTab({
         >
           管理当前课程的基础信息、学习数据与智能化能力状态。当前课程资料、笔记与 DDL 已接入后端账号数据体系。
         </p>
+      </div>
+
+      <div style={{ ...settingPanelStyle(colors), marginBottom: "22px" }}>
+        <div style={settingPanelHeaderStyle()}>
+          <div>
+            <h3 style={settingTitleStyle(colors)}>本课程 AI 接入</h3>
+            <p style={settingSubtitleStyle(colors)}>
+              这里的模型配置会影响 AI 资料笔记和 DDL 截图识别；配置只保存在当前浏览器。
+            </p>
+          </div>
+          <span style={settingBadgeStyle(colors)}>Model</span>
+        </div>
+        <AiModelSettingsPanel
+          value={aiModelSettings}
+          onChange={setAiModelSettings}
+          backendStatus={aiStatus}
+          darkMode={darkMode}
+          compact
+        />
       </div>
 
       <div

@@ -45,6 +45,7 @@ export async function recognizeDdlWithVisionAgent({
   file,
   courseId = null,
   courseName = "未归属课程",
+  aiVisionModel = null,
 }) {
   const formData = new FormData();
   formData.append("file", file);
@@ -60,6 +61,10 @@ export async function recognizeDdlWithVisionAgent({
   }
 
   params.set("courseName", courseName || "未归属课程");
+
+  if (aiVisionModel?.apiUrl) params.set("aiApiUrl", aiVisionModel.apiUrl);
+  if (aiVisionModel?.apiKey) params.set("aiApiKey", aiVisionModel.apiKey);
+  if (aiVisionModel?.model) params.set("aiModel", aiVisionModel.model);
 
   return request(`/api/ddls/recognize-agent?${params.toString()}`, {
     method: "POST",

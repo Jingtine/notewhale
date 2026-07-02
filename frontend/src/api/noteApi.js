@@ -49,6 +49,7 @@ export async function generateNote({
   resourceId = null,
   rawText = "",
   noteStyle = "复习型",
+  aiTextModel = null,
 }) {
   return request("/api/notes/generate", {
     method: "POST",
@@ -59,6 +60,7 @@ export async function generateNote({
       resourceId,
       rawText,
       noteStyle,
+      aiTextModel,
     },
   });
 }

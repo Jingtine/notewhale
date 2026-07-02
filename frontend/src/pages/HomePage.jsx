@@ -4,6 +4,7 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import DDLPanel from "../components/DDLPanel";
 import FolderSection from "../components/FolderSection";
+import GlobalSettingsModal from "../components/GlobalSettingsModal";
 import {useNavigate} from "react-router-dom";
 import {
   createCourse as createBackendCourse,
@@ -24,7 +25,7 @@ import {
   createDdl as createBackendDdl,
   recognizeDdlWithVisionAgent,
 } from "../api/ddlApi";
-import { getNotes as getBackendNotes } from "../api/noteApi";
+import { getAiStatus, getNotes as getBackendNotes } from "../api/noteApi";
 import { getResources as getBackendResources } from "../api/resourceApi";
 import { getApiBaseUrl } from "../api/apiClient";
 import {
@@ -46,6 +47,10 @@ import { mapBackendDdl, mapBackendNote } from "../data/learningItemMappers";
 import { addCourseStatsToFolders } from "../data/courseMetrics";
 import { buildGlobalSearchItems } from "../data/globalSearch";
 import { buildHomeFolderView } from "../data/homeFolderView";
+import {
+  readAiModelSettings,
+  writeAiModelSettings,
+} from "../data/aiModelSettings";
 
 function createLocalId() {
   return Date.now();
@@ -98,6 +103,10 @@ function HomePage({ user = null, onLogout } = {}) {
 
   const [backendCourseMessage, setBackendCourseMessage] = useState("等待同步课程");
   const [backendDdlMessage, setBackendDdlMessage] = useState("等待同步 DDL");
+  const [aiStatus, setAiStatus] = useState(null);
+  const [aiModelSettings, setAiModelSettingsState] = useState(() =>
+    readAiModelSettings()
+  );
 
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renamingCourse, setRenamingCourse] = useState(null);
@@ -117,6 +126,10 @@ function HomePage({ user = null, onLogout } = {}) {
 
   const [backendNotesForHome, setBackendNotesForHome] = useState([]);
   const [backendResourcesForHome, setBackendResourcesForHome] = useState([]);
+
+  function saveAiModelSettings(nextSettings) {
+    setAiModelSettingsState(writeAiModelSettings(nextSettings));
+  }
 
   async function addFolder() {
     const title = newFolderName.trim();
@@ -909,6 +922,27 @@ function HomePage({ user = null, onLogout } = {}) {
     useEffect(() => {writeStorageValue("darkMode", darkMode);}, [darkMode]);
 
   useEffect(() => {
+    if (!showDataStatus) return;
+
+    let alive = true;
+
+    async function loadAiStatus() {
+      try {
+        const status = await getAiStatus();
+        if (alive) setAiStatus(status);
+      } catch {
+        if (alive) setAiStatus(null);
+      }
+    }
+
+    loadAiStatus();
+
+    return () => {
+      alive = false;
+    };
+  }, [showDataStatus]);
+
+  useEffect(() => {
     let alive = true;
 
     async function checkBackend() {
@@ -1366,7 +1400,7 @@ function HomePage({ user = null, onLogout } = {}) {
       </div>
 
       {showDataStatus && (
-        <DataStatusModal
+        <GlobalSettingsModal
           darkMode={darkMode}
           user={currentUser}
           apiStatus={apiStatus}
@@ -1378,6 +1412,9 @@ function HomePage({ user = null, onLogout } = {}) {
           activeDdlCount={activeDdls.length}
           noteCount={noteCount}
           resourceCount={resourceCount}
+          aiStatus={aiStatus}
+          aiModelSettings={aiModelSettings}
+          onChangeAiModelSettings={saveAiModelSettings}
           onClose={() => setShowDataStatus(false)}
         />
       )}
@@ -1630,359 +1667,6 @@ function mapBackendResourceForHome(resource) {
     backendSynced: true,
     createdAt: resource.createdAt || Date.now(),
   };
-}
-
-function DataStatusModal({
-  darkMode,
-  user,
-  apiStatus,
-  backendCourseMessage,
-  backendDdlMessage,
-  courseCount,
-  folderCount,
-  ddlCount,
-  activeDdlCount,
-  noteCount,
-  resourceCount,
-  onClose,
-}) {
-  const colors = {
-    panel: darkMode ? "#111827" : "#FFFFFF",
-    card: darkMode ? "rgba(30,41,59,0.72)" : "#F8FBFF",
-    cardStrong: darkMode ? "rgba(30,41,59,0.92)" : "#FFFFFF",
-    border: darkMode ? "rgba(148,163,184,0.18)" : "#E2EAF5",
-    title: darkMode ? "#F8FAFC" : "#173B63",
-    text: darkMode ? "#CBD5E1" : "#64748B",
-    muted: darkMode ? "#94A3B8" : "#94A3B8",
-    active: darkMode ? "#93C5FD" : "#2563EB",
-    success: "#10B981",
-    warning: "#F59E0B",
-    danger: "#EF4444",
-  };
-
-  const isOnline = Boolean(apiStatus.online);
-  const displayName = user?.name || "鲸记用户";
-  const accountText = user?.account || user?.email || "本地体验账号";
-  const roleText = user?.role || "学生";
-  const storageMode = isOnline ? "云端数据库同步" : "本地浏览器缓存";
-  const syncText = isOnline
-    ? "Vercel 前端、Render 后端与 Supabase 数据库已连通。"
-    : "后端暂不可用，当前仅保留本地演示数据。";
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: darkMode ? "rgba(2,6,23,0.62)" : "rgba(15,42,74,0.20)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 1000,
-        padding: "28px",
-        boxSizing: "border-box",
-      }}
-    >
-      <div
-        style={{
-          width: "min(880px, 100%)",
-          maxHeight: "calc(100vh - 56px)",
-          overflowY: "auto",
-          background: colors.panel,
-          border: `1px solid ${colors.border}`,
-          borderRadius: "24px",
-          padding: "26px",
-          boxSizing: "border-box",
-          boxShadow: darkMode
-            ? "0 28px 80px rgba(0,0,0,0.45)"
-            : "0 28px 80px rgba(15,42,74,0.16)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "18px",
-            alignItems: "flex-start",
-            marginBottom: "22px",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                color: colors.active,
-                fontSize: "12px",
-                fontWeight: 900,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                marginBottom: "8px",
-              }}
-            >
-              Account & Sync
-            </div>
-
-            <h2
-              style={{
-                margin: 0,
-                color: colors.title,
-                fontSize: "28px",
-                fontWeight: 850,
-                letterSpacing: "-0.05em",
-                lineHeight: 1.15,
-              }}
-            >
-              账号与同步状态
-            </h2>
-
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: colors.text,
-                fontSize: "14px",
-                lineHeight: 1.7,
-              }}
-            >
-              查看当前账号、云端连接与数据统计。该页面仅用于状态确认，不作为主要功能入口。
-            </p>
-          </div>
-
-          <button
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: colors.card,
-              color: colors.text,
-              width: "42px",
-              height: "42px",
-              borderRadius: "14px",
-              cursor: "pointer",
-              fontSize: "24px",
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-          >
-            ×
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
-            gap: "16px",
-            marginBottom: "16px",
-          }}
-        >
-          <div
-            style={{
-              background: colors.cardStrong,
-              border: `1px solid ${colors.border}`,
-              borderRadius: "18px",
-              padding: "18px",
-              minWidth: 0,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-              <div
-                style={{
-                  width: "48px",
-                  height: "48px",
-                  borderRadius: "16px",
-                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
-                  color: isOnline ? colors.success : colors.warning,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "20px",
-                  fontWeight: 900,
-                  flexShrink: 0,
-                }}
-              >
-                {displayName.slice(0, 1)}
-              </div>
-
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    color: colors.title,
-                    fontSize: "17px",
-                    fontWeight: 850,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {displayName}
-                </div>
-                <div
-                  style={{
-                    color: colors.text,
-                    fontSize: "13px",
-                    marginTop: "5px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {roleText} · {accountText}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
-              <InfoLine colors={colors} label="账号状态" value="已登录" tone={colors.success} />
-              <InfoLine colors={colors} label="数据隔离" value="按账号独立保存" />
-              <InfoLine colors={colors} label="登录模式" value={isOnline ? "线上 API" : "本地模式"} />
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: colors.cardStrong,
-              border: `1px solid ${colors.border}`,
-              borderRadius: "18px",
-              padding: "18px",
-              minWidth: 0,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "14px" }}>
-              <h3 style={{ margin: 0, color: colors.title, fontSize: "17px", fontWeight: 850 }}>
-                云端同步
-              </h3>
-
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  borderRadius: "999px",
-                  padding: "6px 10px",
-                  background: isOnline ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.12)",
-                  color: isOnline ? colors.success : colors.warning,
-                  fontSize: "12px",
-                  fontWeight: 850,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span
-                  style={{
-                    width: "7px",
-                    height: "7px",
-                    borderRadius: "50%",
-                    background: isOnline ? colors.success : colors.warning,
-                  }}
-                />
-                {isOnline ? "Online" : "Local"}
-              </span>
-            </div>
-
-            <div style={{ display: "grid", gap: "10px" }}>
-              <InfoLine colors={colors} label="后端 API" value={isOnline ? "已连接" : "未连接"} tone={isOnline ? colors.success : colors.warning} />
-              <InfoLine colors={colors} label="存储方式" value={storageMode} />
-              <InfoLine colors={colors} label="课程数据" value={backendCourseMessage || "等待课程同步"} />
-              <InfoLine colors={colors} label="DDL 数据" value={backendDdlMessage || "等待 DDL 同步"} />
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-            gap: "10px",
-            marginBottom: "16px",
-          }}
-        >
-          <StatBlock colors={colors} label="文件夹" value={folderCount} />
-          <StatBlock colors={colors} label="课程" value={courseCount} />
-          <StatBlock colors={colors} label="资料" value={resourceCount} />
-          <StatBlock colors={colors} label="笔记" value={noteCount} />
-          <StatBlock colors={colors} label="DDL" value={ddlCount} />
-          <StatBlock colors={colors} label="待办" value={activeDdlCount} />
-        </div>
-
-        <div
-          style={{
-            background: isOnline ? "rgba(16,185,129,0.08)" : colors.card,
-            border: `1px solid ${isOnline ? "rgba(16,185,129,0.22)" : colors.border}`,
-            borderRadius: "18px",
-            padding: "16px 18px",
-            color: colors.text,
-            fontSize: "14px",
-            lineHeight: 1.8,
-          }}
-        >
-          <strong style={{ color: colors.title }}>当前状态：</strong>
-          {syncText}
-          {isOnline
-            ? " 课程、DDL、笔记等核心数据会优先写入云端，并保留少量本地缓存用于页面体验。"
-            : " 请启动后端或检查线上 API 地址后再进行多设备同步测试。"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InfoLine({ colors, label, value, tone }) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "86px minmax(0, 1fr)",
-        gap: "12px",
-        alignItems: "center",
-        color: colors.text,
-        fontSize: "13px",
-        minWidth: 0,
-      }}
-    >
-      <span style={{ color: colors.muted, whiteSpace: "nowrap" }}>{label}</span>
-      <strong
-        title={String(value || "")}
-        style={{
-          color: tone || colors.title,
-          textAlign: "right",
-          fontWeight: 800,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          minWidth: 0,
-        }}
-      >
-        {value}
-      </strong>
-    </div>
-  );
-}
-
-function StatBlock({ colors, label, value }) {
-  return (
-    <div
-      style={{
-        background: colors.cardStrong || colors.card,
-        border: `1px solid ${colors.border}`,
-        borderRadius: "16px",
-        padding: "13px 10px",
-        textAlign: "center",
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          color: colors.title,
-          fontSize: "24px",
-          fontWeight: 900,
-          letterSpacing: "-0.04em",
-          lineHeight: 1,
-        }}
-      >
-        {value}
-      </div>
-      <div style={{ color: colors.muted, fontSize: "12px", marginTop: "8px" }}>
-        {label}
-      </div>
-    </div>
-  );
 }
 
 const inputStyle = {

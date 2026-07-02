@@ -94,6 +94,51 @@ def build_ai_provider_status(api_url: str, api_key: str, model: str, label: str)
     }
 
 
+def get_override_field(override, field_name: str) -> str:
+    if not override:
+        return ""
+
+    if isinstance(override, dict):
+        return str(override.get(field_name) or "").strip()
+
+    return str(getattr(override, field_name, "") or "").strip()
+
+
+def build_ai_provider_config(
+    default_api_url: str,
+    default_api_key: str,
+    default_model: str,
+    override=None,
+):
+    custom_api_url = get_override_field(override, "apiUrl")
+    custom_api_key = get_override_field(override, "apiKey")
+    custom_model = get_override_field(override, "model")
+    using_custom = bool(custom_api_url or custom_api_key or custom_model)
+
+    return {
+        "api_url": custom_api_url if using_custom else default_api_url,
+        "api_key": custom_api_key if using_custom else default_api_key,
+        "model": custom_model if using_custom else default_model,
+        "source": "custom" if using_custom else "environment",
+    }
+
+
+def ensure_ai_provider_configured(provider, label: str):
+    status = build_ai_provider_status(
+        provider.get("api_url", ""),
+        provider.get("api_key", ""),
+        provider.get("model", ""),
+        label,
+    )
+
+    if not status["configured"]:
+        source_text = "自定义模型" if provider.get("source") == "custom" else "后端环境变量"
+        raise HTTPException(
+            status_code=503,
+            detail=f"{source_text}里的{label}模型配置不完整：{status['message']}",
+        )
+
+
 def safe_add_column(conn, table_name: str, column_name: str, column_sql: str):
     """
     安全部署用：给旧表补字段。
@@ -1684,7 +1729,9 @@ def call_text_model(
     max_tokens: int = 2200,
     timeout: int = 55,
     max_continuations: int = 0,
+    provider=None,
 ):
+    provider_config = provider or build_ai_provider_config(TEXT_API_URL, TEXT_API_KEY, TEXT_MODEL)
     messages = [
         {
             "role": "system",
@@ -1699,7 +1746,7 @@ def call_text_model(
 
     for attempt in range(max_continuations + 1):
         body = {
-            "model": TEXT_MODEL,
+            "model": provider_config["model"],
             "messages": messages,
             "temperature": 0.25,
             "max_tokens": max_tokens,
@@ -1707,11 +1754,11 @@ def call_text_model(
         }
 
         request = urllib.request.Request(
-            TEXT_API_URL,
+            provider_config["api_url"],
             data=json.dumps(body).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {TEXT_API_KEY}",
+                "Authorization": f"Bearer {provider_config['api_key']}",
             },
             method="POST",
         )
@@ -1782,7 +1829,7 @@ def call_text_model(
     return merged_content
 
 
-def summarize_long_resource_text(course_name: str, resource_name: str, resource_text: str):
+def summarize_long_resource_text(course_name: str, resource_name: str, resource_text: str, provider=None):
     chunks = split_text_for_ai(resource_text)
     if len(chunks) <= 1:
         return normalize_ai_text(resource_text, max_length=6500), len(chunks)
@@ -1817,6 +1864,7 @@ def summarize_long_resource_text(course_name: str, resource_name: str, resource_
             system_prompt="你是严谨的课程资料分块摘要助手，只根据用户提供的当前分块内容整理。",
             max_tokens=950,
             timeout=45,
+            provider=provider,
         )
         summaries.append(summary)
 
@@ -1833,6 +1881,7 @@ def call_text_agent_for_course_note(
     resource_name: str,
     resource_text: str,
     note_style: str = "复习型",
+    ai_model=None,
 ):
     """
     OpenAI-compatible 文本模型调用：
@@ -1840,11 +1889,8 @@ def call_text_agent_for_course_note(
     - 控制输入长度和输出长度，避免 Render 请求超时导致前端 Failed to fetch；
     - 如果模型服务返回错误，后端返回可读 detail，不让前端只看到空泛错误。
     """
-    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置文本模型。请在 backend/.env 或系统环境变量中设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
-        )
+    provider = build_ai_provider_config(TEXT_API_URL, TEXT_API_KEY, TEXT_MODEL, ai_model)
+    ensure_ai_provider_configured(provider, "文本")
 
     clean_text = normalize_ai_text(resource_text, max_length=50000)
     output_structure = get_note_style_output_structure(note_style, resource_name)
@@ -1864,6 +1910,7 @@ def call_text_agent_for_course_note(
         course_name=course_name,
         resource_name=resource_name,
         resource_text=clean_text,
+        provider=provider,
     )
     long_doc_instruction = (
         f"这是一份长文档，已先分成 {chunk_count} 段做精读摘要。请综合所有分块摘要生成最终笔记，不要只依据某一段。"
@@ -1903,12 +1950,13 @@ def call_text_agent_for_course_note(
         max_tokens=3200,
         timeout=55,
         max_continuations=2,
+        provider=provider,
     )
 
     if not content or len(content) < 80:
         raise HTTPException(status_code=502, detail="文本模型返回内容过短，请稍后重试或换用文字更多的资料。")
 
-    return content
+    return content, provider
 
 
 
@@ -1968,11 +2016,12 @@ def generate_note(
     resource_name = resource.name if resource else payload.resourceName
     course_name = payload.courseName or "课程"
 
-    content = call_text_agent_for_course_note(
+    content, text_provider = call_text_agent_for_course_note(
         course_name=course_name,
         resource_name=resource_name or "课程资料",
         resource_text=resource_text,
         note_style=payload.noteStyle or "复习型",
+        ai_model=payload.aiTextModel,
     )
 
     now = datetime.utcnow()
@@ -1989,7 +2038,8 @@ def generate_note(
         "createdAt": int(now.timestamp() * 1000),
         "updatedAt": int(now.timestamp() * 1000),
         "aiMeta": {
-            "engine": TEXT_MODEL,
+            "engine": text_provider["model"],
+            "providerSource": text_provider["source"],
             "mode": "text-agent",
             "usedResourceText": bool(resource_text),
             "resourceId": resource.id if resource else None,
@@ -2046,7 +2096,7 @@ def normalize_agent_date(date_text: str):
     return value
 
 
-def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
+def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str, ai_model=None):
     """
     调用真正的视觉模型智能体识别 DDL 截图。
     需要配置：
@@ -2056,11 +2106,8 @@ def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
 
     该函数按 OpenAI-compatible chat/completions 图片输入格式发送请求。
     """
-    if not VISION_API_URL or not VISION_API_KEY or not VISION_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置视觉模型智能体。请在 backend/.env 或系统环境变量中设置 NOTEWHALE_VISION_API_URL / NOTEWHALE_VISION_API_KEY / NOTEWHALE_VISION_MODEL。",
-        )
+    provider = build_ai_provider_config(VISION_API_URL, VISION_API_KEY, VISION_MODEL, ai_model)
+    ensure_ai_provider_configured(provider, "视觉")
 
     if not content:
         raise HTTPException(status_code=400, detail="图片内容为空")
@@ -2099,7 +2146,7 @@ def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
 """
 
     body = {
-        "model": VISION_MODEL,
+        "model": provider["model"],
         "messages": [
             {
                 "role": "system",
@@ -2117,11 +2164,11 @@ def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
     }
 
     request = urllib.request.Request(
-        VISION_API_URL,
+        provider["api_url"],
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {VISION_API_KEY}",
+            "Authorization": f"Bearer {provider['api_key']}",
         },
         method="POST",
     )
@@ -2144,6 +2191,8 @@ def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
         "platform": str(parsed.get("platform") or "待确认").strip(),
         "note": str(parsed.get("note") or "").strip(),
         "confidence": float(parsed.get("confidence") or 0.0),
+        "engine": provider["model"],
+        "providerSource": provider["source"],
     }
 
 
@@ -2174,6 +2223,9 @@ async def recognize_ddl_agent(
     file: UploadFile = File(...),
     courseId: Optional[int] = Query(None),
     courseName: str = Query("未归属课程"),
+    aiApiUrl: str = Query(""),
+    aiApiKey: str = Query(""),
+    aiModel: str = Query(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2190,6 +2242,11 @@ async def recognize_ddl_agent(
         content=content,
         filename=raw_name,
         course_name=courseName or "未归属课程",
+        ai_model={
+            "apiUrl": aiApiUrl,
+            "apiKey": aiApiKey,
+            "model": aiModel,
+        },
     )
 
     now = datetime.utcnow()
@@ -2208,7 +2265,8 @@ async def recognize_ddl_agent(
         "imageName": raw_name,
         "createdAt": int(now.timestamp() * 1000),
         "aiMeta": {
-            "engine": VISION_MODEL,
+            "engine": agent_result.get("engine") or VISION_MODEL,
+            "providerSource": agent_result.get("providerSource") or "environment",
             "mode": "vision-agent",
         },
     }

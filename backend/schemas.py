@@ -81,6 +81,12 @@ class NoteUpdate(BaseModel):
     aiGenerated: Optional[bool] = None
 
 
+class AIModelOverride(BaseModel):
+    apiUrl: str = ""
+    apiKey: str = ""
+    model: str = ""
+
+
 class GenerateNoteRequest(BaseModel):
     courseId: Optional[int] = None
     courseName: str = "课程"
@@ -88,6 +94,7 @@ class GenerateNoteRequest(BaseModel):
     resourceId: Optional[int] = None
     rawText: str = ""
     noteStyle: str = "复习型"
+    aiTextModel: Optional[AIModelOverride] = None
 
 
 class RecognizeDDLRequest(BaseModel):
