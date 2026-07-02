@@ -456,8 +456,8 @@ function Header({
           <MenuItem theme={theme} onClick={handleOpenDataStatus}>
             同步与存储
           </MenuItem>
-          <MenuItem theme={theme} muted>
-            账号设置 · 后续接入
+          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
+            账号中心
           </MenuItem>
 
           <button

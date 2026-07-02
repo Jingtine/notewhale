@@ -1720,7 +1720,7 @@ function CourseTopBar({
               opacity: 0.72,
             }}
           >
-            账号设置 · 后续接入
+            账号中心 · 返回主页管理
           </button>
 
           <button

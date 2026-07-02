@@ -19,6 +19,7 @@ function GlobalSettingsModal({
   aiModelSettings,
   onChangeAiModelSettings,
   onUserUpdated,
+  onLogout,
   onClose,
 }) {
   const colors = {
@@ -31,6 +32,7 @@ function GlobalSettingsModal({
     active: darkMode ? "#93C5FD" : "#2563EB",
     success: "#10B981",
     warning: "#F59E0B",
+    danger: "#DC2626",
   };
   const displayName = user?.name || "NoteWhale 用户";
   const accountText = user?.account || user?.email || "本地体验账号";
@@ -110,6 +112,8 @@ function GlobalSettingsModal({
                 user={user}
                 colors={colors}
                 onUserUpdated={onUserUpdated}
+                onLogout={onLogout}
+                onClose={onClose}
               />
             )}
 
@@ -181,7 +185,7 @@ function SummaryCard({ label, value, detail, colors, tone = "default" }) {
   );
 }
 
-function AccountSettingsSection({ user, colors, onUserUpdated }) {
+function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose }) {
   const [profileName, setProfileName] = useState(user?.name || "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -189,6 +193,11 @@ function AccountSettingsSection({ user, colors, onUserUpdated }) {
   const [messageTone, setMessageTone] = useState("default");
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const displayName = user?.name || "NoteWhale 用户";
+  const accountText = user?.account || user?.email || "本地体验账号";
+  const avatarText = user?.avatar || displayName.slice(0, 1);
+  const accountCreatedAt = formatAccountTime(user?.createdAt);
+  const loginAt = formatAccountTime(user?.loginAt);
 
   async function handleSaveProfile(event) {
     event.preventDefault();
@@ -245,6 +254,11 @@ function AccountSettingsSection({ user, colors, onUserUpdated }) {
     }
   }
 
+  function handleLogout() {
+    onClose?.();
+    onLogout?.();
+  }
+
   const statusColor =
     messageTone === "success"
       ? colors.success
@@ -258,18 +272,49 @@ function AccountSettingsSection({ user, colors, onUserUpdated }) {
         <div>
           <h3 style={sectionTitleStyle(colors)}>账号与安全</h3>
           <p style={sectionTextStyle(colors)}>
-            管理当前账号的展示名称和登录密码。账号邮箱暂不支持修改。
+            管理当前账号的展示名称、登录密码和浏览器会话。
           </p>
         </div>
       </div>
 
+      <div style={accountHeroStyle(colors)}>
+        <div style={accountAvatarStyle(colors)}>{avatarText}</div>
+        <div style={{ minWidth: 0 }}>
+          <h4 style={{ margin: 0, color: colors.title, fontSize: "22px", fontWeight: 900 }}>
+            {displayName}
+          </h4>
+          <p style={{ margin: "6px 0 0", color: colors.text, fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {accountText}
+          </p>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+            <span style={accountBadgeStyle(colors, "success")}>已登录</span>
+            <span style={accountBadgeStyle(colors, "default")}>
+              {user?.authMode === "api" ? "云端账号" : "本地体验"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={accountMetaGridStyle}>
+        <AccountMeta label="账号状态" value="正常" colors={colors} tone="success" />
+        <AccountMeta label="数据隔离" value="按账号独立保存" colors={colors} />
+        <AccountMeta label="创建时间" value={accountCreatedAt} colors={colors} />
+        <AccountMeta label="本次登录" value={loginAt} colors={colors} />
+      </div>
+
       <div style={accountGridStyle}>
         <form onSubmit={handleSaveProfile} style={accountPanelStyle(colors)}>
+          <div style={accountPanelHeaderStyle}>
+            <div>
+              <h4 style={accountPanelTitleStyle(colors)}>账号资料</h4>
+              <p style={accountPanelTextStyle(colors)}>
+                展示昵称会用于首页问候、侧边栏账号卡片和后续协作场景。
+              </p>
+            </div>
+          </div>
           <div>
             <div style={fieldLabelStyle(colors)}>登录账号</div>
-            <div style={accountReadonlyStyle(colors)}>
-              {user?.account || user?.email || "本地体验账号"}
-            </div>
+            <div style={accountReadonlyStyle(colors)}>{accountText}</div>
           </div>
           <label style={fieldWrapperStyle}>
             <span style={fieldLabelStyle(colors)}>展示昵称</span>
@@ -290,6 +335,14 @@ function AccountSettingsSection({ user, colors, onUserUpdated }) {
         </form>
 
         <form onSubmit={handleChangePassword} style={accountPanelStyle(colors)}>
+          <div style={accountPanelHeaderStyle}>
+            <div>
+              <h4 style={accountPanelTitleStyle(colors)}>登录密码</h4>
+              <p style={accountPanelTextStyle(colors)}>
+                修改后不会影响当前会话，下次登录时使用新密码。
+              </p>
+            </div>
+          </div>
           <label style={fieldWrapperStyle}>
             <span style={fieldLabelStyle(colors)}>当前密码</span>
             <input
@@ -322,12 +375,39 @@ function AccountSettingsSection({ user, colors, onUserUpdated }) {
         </form>
       </div>
 
+      <div style={dangerZoneStyle(colors)}>
+        <div>
+          <h4 style={accountPanelTitleStyle(colors)}>安全操作</h4>
+          <p style={accountPanelTextStyle(colors)}>
+            退出后会清除当前浏览器里的登录令牌，课程数据仍保存在你的账号下。
+          </p>
+        </div>
+        <button type="button" onClick={handleLogout} style={dangerButtonStyle(colors)}>
+          退出当前账号
+        </button>
+      </div>
+
       {message && (
         <div style={{ color: statusColor, fontSize: "13px", fontWeight: 800, marginTop: "12px" }}>
           {message}
         </div>
       )}
     </section>
+  );
+}
+
+function AccountMeta({ label, value, colors, tone = "default" }) {
+  const color = tone === "success" ? colors.success : colors.title;
+
+  return (
+    <div style={accountMetaStyle(colors)}>
+      <span style={{ color: colors.muted, fontSize: "12px", fontWeight: 900 }}>
+        {label}
+      </span>
+      <strong style={{ color, fontSize: "14px", marginTop: "7px" }}>
+        {value || "未记录"}
+      </strong>
+    </div>
   );
 }
 
@@ -348,11 +428,137 @@ function Capability({ colors, children }) {
   );
 }
 
+function formatAccountTime(value) {
+  if (!value) return "未记录";
+
+  const date = typeof value === "number" ? new Date(value) : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "未记录";
+
+  return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function accountHeroStyle(colors) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "16px",
+    padding: "16px",
+    marginBottom: "14px",
+    minWidth: 0,
+  };
+}
+
+function accountAvatarStyle(colors) {
+  return {
+    width: "62px",
+    height: "62px",
+    borderRadius: "16px",
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    color: "#FFFFFF",
+    background: colors.active,
+    fontSize: "24px",
+    fontWeight: 900,
+  };
+}
+
+function accountBadgeStyle(colors, tone) {
+  const color = tone === "success" ? colors.success : colors.active;
+
+  return {
+    color,
+    background: `${color}14`,
+    border: `1px solid ${color}24`,
+    borderRadius: "999px",
+    padding: "5px 9px",
+    fontSize: "12px",
+    fontWeight: 900,
+  };
+}
+
+const accountMetaGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "12px",
+  marginBottom: "16px",
+};
+
+function accountMetaStyle(colors) {
+  return {
+    display: "grid",
+    background: colors.panel,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "14px",
+    padding: "13px",
+    minWidth: 0,
+  };
+}
+
 const accountGridStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: "16px",
 };
+
+const accountPanelHeaderStyle = {
+  minHeight: "58px",
+};
+
+function accountPanelTitleStyle(colors) {
+  return {
+    margin: 0,
+    color: colors.title,
+    fontSize: "16px",
+    fontWeight: 900,
+  };
+}
+
+function accountPanelTextStyle(colors) {
+  return {
+    margin: "6px 0 0",
+    color: colors.text,
+    fontSize: "13px",
+    lineHeight: 1.6,
+  };
+}
+
+function dangerZoneStyle(colors) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    flexWrap: "wrap",
+    marginTop: "16px",
+    background: `${colors.danger}08`,
+    border: `1px solid ${colors.danger}24`,
+    borderRadius: "16px",
+    padding: "16px",
+  };
+}
+
+function dangerButtonStyle(colors) {
+  return {
+    height: "40px",
+    border: `1px solid ${colors.danger}33`,
+    borderRadius: "10px",
+    background: `${colors.danger}12`,
+    color: colors.danger,
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: 900,
+    padding: "0 14px",
+  };
+}
 
 const fieldWrapperStyle = {
   display: "grid",

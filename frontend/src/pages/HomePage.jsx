@@ -1416,6 +1416,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           aiModelSettings={aiModelSettings}
           onChangeAiModelSettings={saveAiModelSettings}
           onUserUpdated={onUserUpdated}
+          onLogout={onLogout}
           onClose={() => setShowDataStatus(false)}
         />
       )}
