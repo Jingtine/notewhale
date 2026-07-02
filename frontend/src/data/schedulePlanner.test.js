@@ -73,4 +73,33 @@ describe("schedule planner", () => {
 
     assert.deepEqual(blocks, []);
   });
+
+  it("plans high-importance exam review with a longer block", () => {
+    const blocks = generateStudyPlanBlocks({
+      weekStart: new Date("2026-03-02T00:00:00"),
+      fixedClasses: [
+        {
+          day: 2,
+          startTime: "08:00",
+          endTime: "10:00",
+        },
+      ],
+      exams: [
+        {
+          id: "exam-1",
+          subject: "高等数学",
+          date: "2026-03-03T15:00:00",
+          importance: 5,
+          completed: false,
+        },
+      ],
+    });
+
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].title, "高等数学 考前复习");
+    assert.equal(blocks[0].day, 2);
+    assert.equal(blocks[0].startTime, "10:00");
+    assert.equal(blocks[0].endTime, "11:30");
+    assert.equal(blocks[0].priority, "high");
+  });
 });

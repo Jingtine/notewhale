@@ -7,6 +7,7 @@ export function generateStudyPlanBlocks({
   weekStart,
   fixedClasses = [],
   ddls = [],
+  exams = [],
   courses = [],
   existingBlocks = [],
   options = {},
@@ -14,7 +15,7 @@ export function generateStudyPlanBlocks({
   const start = startOfWeek(weekStart || new Date());
   const blockMinutes = options.blockMinutes || DEFAULT_BLOCK_MINUTES;
   const maxBlocks = options.maxBlocks || 8;
-  const tasks = buildStudyTasks(ddls, courses, start).slice(0, maxBlocks);
+  const tasks = buildStudyTasks(ddls, exams, courses, start).slice(0, maxBlocks);
   const occupiedByDay = buildOccupiedByDay({
     fixedClasses,
     ddls,
@@ -28,7 +29,7 @@ export function generateStudyPlanBlocks({
       occupiedByDay,
       deadline: task.deadline,
       weekStart: start,
-      blockMinutes,
+      blockMinutes: task.blockMinutes || blockMinutes,
     });
 
     if (!slot) return;
@@ -61,12 +62,12 @@ export function generateStudyPlanBlocks({
   return blocks;
 }
 
-function buildStudyTasks(ddls, courses, weekStart) {
+function buildStudyTasks(ddls, exams, courses, weekStart) {
   const courseNames = new Map(
     courses.map((course) => [String(course.id), course.title || course.name || "未命名课程"])
   );
 
-  return ddls
+  const ddlTasks = ddls
     .map((ddl) => ({
       ddl,
       deadline: parseDate(ddl.date),
@@ -84,6 +85,7 @@ function buildStudyTasks(ddls, courses, weekStart) {
         courseId: ddl.courseId,
         courseName,
         deadline,
+        blockMinutes: normalizeMinutes(ddl.estimatedMinutes || ddl.estimatedTime, DEFAULT_BLOCK_MINUTES),
         location: `${formatMonthDay(deadline)} 截止 · ${courseName}`,
       };
       const timeUntilDeadline = deadline.getTime() - Date.now();
@@ -109,6 +111,38 @@ function buildStudyTasks(ddls, courses, weekStart) {
           : []),
       ];
     });
+
+  const examTasks = exams
+    .map((exam) => ({
+      exam,
+      deadline: parseDate(exam.date),
+    }))
+    .filter(({ exam, deadline }) => !exam.completed && deadline && isWithinWeek(deadline, weekStart))
+    .sort((a, b) => {
+      const importanceDiff = normalizeImportance(b.exam.importance) - normalizeImportance(a.exam.importance);
+      return importanceDiff || a.deadline - b.deadline;
+    })
+    .map(({ exam, deadline }) => {
+      const courseName = exam.subject || exam.courseName || "考试复习";
+      const importance = normalizeImportance(exam.importance);
+
+      return {
+        key: `exam-${exam.id || `${courseName}-${exam.date}`}`,
+        examId: exam.id,
+        courseId: exam.courseId || "",
+        courseName,
+        deadline,
+        blockMinutes: normalizeMinutes(exam.reviewMinutes, importance >= 4 ? 90 : 60),
+        location: `${formatMonthDay(deadline)} 考试 · 重要度 ${importance}`,
+        title: `${courseName} 考前复习`,
+        priority: importance >= 4 ? "high" : "normal",
+      };
+    });
+
+  return [...examTasks, ...ddlTasks].sort((a, b) => {
+    const priorityDiff = priorityScore(b.priority) - priorityScore(a.priority);
+    return priorityDiff || a.deadline - b.deadline;
+  });
 }
 
 function buildOccupiedByDay({ fixedClasses, ddls, existingBlocks, weekStart }) {
@@ -174,6 +208,22 @@ function findFreeSlot({ occupiedByDay, deadline, weekStart, blockMinutes }) {
   }
 
   return null;
+}
+
+function normalizeMinutes(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return Math.min(180, Math.max(30, Math.round(number / 15) * 15));
+}
+
+function normalizeImportance(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 3;
+  return Math.min(5, Math.max(1, number));
+}
+
+function priorityScore(priority) {
+  return priority === "high" ? 2 : priority === "normal" ? 1 : 0;
 }
 
 function findSlotInDay(occupied, blockMinutes, latestEnd) {

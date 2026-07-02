@@ -31,6 +31,8 @@ const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
 const STUDY_PLAN_STORAGE_KEY = "studyPlanBlocks";
+const EXAM_STORAGE_KEY = "scheduleExamItems";
+const REMINDER_STORAGE_KEY = "scheduleReminderEnabled";
 const NJU_TEACHING_DIRECT_URL = NJU_AUTH_SCHEDULE_URL;
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
@@ -39,6 +41,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(() => readStorageBoolean("darkMode", false));
   const [currentWeek, setCurrentWeek] = useState(() => startOfWeek(new Date()));
+  const [viewMode, setViewMode] = useState("week");
   const [fixedClasses, setFixedClasses] = useState(() =>
     readUserStorageArray(user, SCHEDULE_STORAGE_KEY, [])
   );
@@ -47,6 +50,12 @@ function SchedulePage({ user = null, onLogout } = {}) {
   );
   const [studyPlanBlocks, setStudyPlanBlocks] = useState(() =>
     readUserStorageArray(user, STUDY_PLAN_STORAGE_KEY, [])
+  );
+  const [exams, setExams] = useState(() =>
+    readUserStorageArray(user, EXAM_STORAGE_KEY, [])
+  );
+  const [remindersEnabled, setRemindersEnabled] = useState(() =>
+    readStorageBoolean(REMINDER_STORAGE_KEY, false)
   );
   const [folders, setFolders] = useState(() =>
     readUserStorageArray(user, "folders", [], { legacyKey: "folders" })
@@ -61,6 +70,11 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [classEnd, setClassEnd] = useState("09:40");
   const [classLocation, setClassLocation] = useState("");
   const [classCourseId, setClassCourseId] = useState("");
+  const [examSubject, setExamSubject] = useState("");
+  const [examDate, setExamDate] = useState("");
+  const [examGoal, setExamGoal] = useState("");
+  const [examImportance, setExamImportance] = useState("4");
+  const [examReviewMinutes, setExamReviewMinutes] = useState("90");
   const [scheduleImportText, setScheduleImportText] = useState("");
   const [scheduleImportPreview, setScheduleImportPreview] = useState([]);
   const [scheduleImportErrors, setScheduleImportErrors] = useState([]);
@@ -75,6 +89,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const colors = buildColors(darkMode);
   const hasDesktopScheduleBridge = hasNjuScheduleBridge();
   const weekDays = useMemo(() => buildWeekDays(currentWeek), [currentWeek]);
+  const monthDays = useMemo(() => buildMonthDays(currentWeek), [currentWeek]);
   const courses = useMemo(
     () => folders.flatMap((folder) => folder.courses || folder.items || []),
     [folders]
@@ -103,6 +118,34 @@ function SchedulePage({ user = null, onLogout } = {}) {
         .filter(({ date }) => date && isWithinWeek(date, currentWeek))
         .sort((a, b) => a.date - b.date),
     [ddls, currentWeek]
+  );
+  const weekExams = useMemo(
+    () =>
+      exams
+        .filter((exam) => !exam.completed)
+        .map((exam) => ({ exam, date: parseScheduleDate(exam.date) }))
+        .filter(({ date }) => date && isWithinWeek(date, currentWeek))
+        .sort((a, b) => a.date - b.date),
+    [exams, currentWeek]
+  );
+  const scheduleConflicts = useMemo(
+    () =>
+      detectScheduleConflicts({
+        fixedClasses: visibleFixedClasses,
+        studyBlocks: weekStudyPlanBlocks,
+        exams: weekExams.map(({ exam }) => exam),
+        weekStart: currentWeek,
+      }),
+    [visibleFixedClasses, weekStudyPlanBlocks, weekExams, currentWeek]
+  );
+  const upcomingReminderEvents = useMemo(
+    () =>
+      buildUpcomingReminderEvents({
+        ddls,
+        exams,
+        studyBlocks: studyPlanBlocks,
+      }),
+    [ddls, exams, studyPlanBlocks]
   );
 
   const classBlocksByDay = useMemo(() => {
@@ -146,6 +189,17 @@ function SchedulePage({ user = null, onLogout } = {}) {
     return result;
   }, [weekStudyPlanBlocks]);
 
+  const examBlocksByDay = useMemo(() => {
+    const result = new Map(WEEKDAYS.map((_, index) => [index + 1, []]));
+
+    weekExams.forEach((item) => {
+      const day = getIsoDay(item.date);
+      result.get(day)?.push(item);
+    });
+
+    return result;
+  }, [weekExams]);
+
   useEffect(() => {
     writeStorageValue("darkMode", darkMode);
   }, [darkMode]);
@@ -159,8 +213,38 @@ function SchedulePage({ user = null, onLogout } = {}) {
   }, [studyPlanBlocks, user]);
 
   useEffect(() => {
+    writeUserStorageArray(user, EXAM_STORAGE_KEY, exams);
+  }, [exams, user]);
+
+  useEffect(() => {
     writeUserStorageValue(user, SCHEDULE_SEMESTER_START_KEY, semesterStartMonday);
   }, [semesterStartMonday, user]);
+
+  useEffect(() => {
+    writeStorageValue(REMINDER_STORAGE_KEY, remindersEnabled);
+  }, [remindersEnabled]);
+
+  useEffect(() => {
+    if (!remindersEnabled || typeof window === "undefined" || !("Notification" in window)) return undefined;
+    if (Notification.permission !== "granted") return undefined;
+
+    const timers = upcomingReminderEvents
+      .map((event) => {
+        const delay = event.date.getTime() - Date.now() - 30 * 60 * 1000;
+        if (delay < 0 || delay > 24 * 60 * 60 * 1000) return null;
+
+        return window.setTimeout(() => {
+          new Notification(event.title, {
+            body: event.detail,
+          });
+        }, delay);
+      })
+      .filter(Boolean);
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [remindersEnabled, upcomingReminderEvents]);
 
   useEffect(() => {
     let alive = true;
@@ -241,11 +325,113 @@ function SchedulePage({ user = null, onLogout } = {}) {
     }
   }
 
+  function toggleStudyPlanBlockDone(blockId) {
+    setStudyPlanBlocks((prev) =>
+      prev.map((item) =>
+        item.id === blockId
+          ? {
+              ...item,
+              completedAt: item.completedAt ? "" : new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  }
+
+  function addExam(event) {
+    event.preventDefault();
+
+    const subject = examSubject.trim();
+    if (!subject || !examDate) return;
+
+    setExams((prev) => [
+      ...prev,
+      {
+        id: `exam-${Date.now()}`,
+        subject,
+        date: examDate.replace("T", " "),
+        goal: examGoal.trim(),
+        importance: Number(examImportance),
+        reviewMinutes: Number(examReviewMinutes),
+        completed: false,
+      },
+    ]);
+
+    setExamSubject("");
+    setExamGoal("");
+  }
+
+  function deleteExam(examId) {
+    setExams((prev) => prev.filter((item) => item.id !== examId));
+  }
+
+  function toggleExamDone(examId) {
+    setExams((prev) =>
+      prev.map((item) =>
+        item.id === examId
+          ? {
+              ...item,
+              completed: !item.completed,
+            }
+          : item
+      )
+    );
+  }
+
+  function postponeUnfinishedStudyBlocks() {
+    const now = new Date();
+    let movedCount = 0;
+
+    setStudyPlanBlocks((prev) =>
+      prev.map((item) => {
+        const itemDate = parseScheduleDate(`${item.date}T${item.endTime}`);
+        if (!itemDate || itemDate >= now || item.completedAt) return item;
+
+        const nextDate = addDays(parseScheduleDate(item.date) || currentWeek, 1);
+        movedCount += 1;
+
+        return {
+          ...item,
+          day: getIsoDay(nextDate),
+          date: formatDateInput(nextDate),
+          source: "未完成自动顺延",
+          postponed: true,
+        };
+      })
+    );
+
+    setStudyPlanMessage(
+      movedCount > 0
+        ? `已顺延 ${movedCount} 个未完成复习块。`
+        : "没有需要顺延的未完成复习块。"
+    );
+  }
+
+  async function enableScheduleReminders() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setStudyPlanMessage("当前环境不支持系统通知。");
+      return;
+    }
+
+    const permission =
+      Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+
+    if (permission === "granted") {
+      setRemindersEnabled(true);
+      setStudyPlanMessage("提醒已开启：页面打开时会为 24 小时内事项安排提前 30 分钟提醒。");
+    } else {
+      setStudyPlanMessage("未获得通知权限，暂时无法推送提醒。");
+    }
+  }
+
   function generateWeeklyStudyPlan() {
     const generatedBlocks = generateStudyPlanBlocks({
       weekStart: currentWeek,
       fixedClasses: visibleFixedClasses,
       ddls,
+      exams,
       courses,
       existingBlocks: [],
     });
@@ -484,26 +670,47 @@ function SchedulePage({ user = null, onLogout } = {}) {
               </p>
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button type="button" onClick={() => setCurrentWeek(addDays(currentWeek, -7))} style={outlineButtonStyle(colors)}>
-                上一周
+              <button type="button" onClick={() => setCurrentWeek(viewMode === "month" ? startOfWeek(addMonths(currentWeek, -1)) : addDays(currentWeek, -7))} style={outlineButtonStyle(colors)}>
+                {viewMode === "month" ? "上一月" : "上一周"}
               </button>
               <button type="button" onClick={() => setCurrentWeek(startOfWeek(new Date()))} style={primaryButtonStyle(colors)}>
-                本周
+                {viewMode === "month" ? "本月" : "本周"}
               </button>
-              <button type="button" onClick={() => setCurrentWeek(addDays(currentWeek, 7))} style={outlineButtonStyle(colors)}>
-                下一周
+              <button type="button" onClick={() => setCurrentWeek(viewMode === "month" ? startOfWeek(addMonths(currentWeek, 1)) : addDays(currentWeek, 7))} style={outlineButtonStyle(colors)}>
+                {viewMode === "month" ? "下一月" : "下一周"}
               </button>
             </div>
           </div>
 
           <div style={statsGridStyle}>
-            <StatCard label="本周课程" value={visibleFixedClassCount} detail={`固定课表共 ${fixedClassCount} 项`} colors={colors} />
+            <StatCard label="本周课程" value={visibleFixedClassCount} detail={`固定课表共 ${fixedClassCount} 项 / ${lockedHours.toFixed(1)} 小时`} colors={colors} />
             <StatCard label="本周 DDL" value={weekDdls.length} detail="待处理截止项" colors={colors} />
+            <StatCard label="本周考试" value={weekExams.length} detail="考试和复习目标" colors={colors} />
             <StatCard label="复习规划" value={weekStudyPlanBlocks.length} detail={`${plannedHours.toFixed(1)} 小时已安排`} colors={colors} />
-            <StatCard label="已锁定时间" value={lockedHours.toFixed(1)} detail="小时 / 每周" colors={colors} />
+            <StatCard label="冲突检测" value={scheduleConflicts.length} detail={scheduleConflicts.length ? "需要手动调整" : "暂无冲突"} colors={colors} />
             <StatCard label="当前账号" value={currentUser.name} detail={currentUser.account || "本地体验账号"} colors={colors} />
           </div>
 
+          <div style={viewToggleStyle(colors)}>
+            <button type="button" onClick={() => setViewMode("week")} style={viewToggleButtonStyle(colors, viewMode === "week")}>
+              周视图
+            </button>
+            <button type="button" onClick={() => setViewMode("month")} style={viewToggleButtonStyle(colors, viewMode === "month")}>
+              月视图
+            </button>
+          </div>
+
+          {viewMode === "month" ? (
+            <MonthCalendar
+              colors={colors}
+              monthDays={monthDays}
+              currentWeek={currentWeek}
+              fixedClasses={visibleFixedClasses}
+              ddls={ddls}
+              exams={exams}
+              studyBlocks={studyPlanBlocks}
+            />
+          ) : (
           <div style={calendarScrollStyle}>
             <div style={weekGridStyle(colors)}>
             <div style={timeColumnStyle(colors)}>
@@ -520,6 +727,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
               const classBlocks = classBlocksByDay.get(isoDay) || [];
               const ddlBlocks = ddlBlocksByDay.get(isoDay) || [];
               const studyBlocks = studyBlocksByDay.get(isoDay) || [];
+              const examBlocks = examBlocksByDay.get(isoDay) || [];
 
               return (
                 <div key={day.key} style={dayColumnStyle(colors)}>
@@ -550,6 +758,24 @@ function SchedulePage({ user = null, onLogout } = {}) {
                         type="study"
                         onSelect={() => selectStudyPlanBlock(item)}
                         onDelete={() => deleteStudyPlanBlock(item.id)}
+                        onToggleDone={() => toggleStudyPlanBlockDone(item.id)}
+                      />
+                    ))}
+
+                    {examBlocks.map(({ exam, date }) => (
+                      <ScheduleBlock
+                        key={exam.id}
+                        item={{
+                          title: exam.subject || "考试",
+                          startTime: formatTime(date),
+                          endTime: formatTime(addMinutes(date, 90)),
+                          courseName: exam.subject,
+                          location: exam.goal || `重要度 ${exam.importance || 3}`,
+                          completedAt: exam.completed ? "done" : "",
+                        }}
+                        colors={colors}
+                        type="exam"
+                        onDelete={() => deleteExam(exam.id)}
                       />
                     ))}
 
@@ -568,7 +794,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                       />
                     ))}
 
-                    {classBlocks.length === 0 && studyBlocks.length === 0 && ddlBlocks.length === 0 && (
+                    {classBlocks.length === 0 && studyBlocks.length === 0 && ddlBlocks.length === 0 && examBlocks.length === 0 && (
                       <div style={emptyDayStyle(colors)}>空余</div>
                     )}
                   </div>
@@ -577,6 +803,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
             })}
             </div>
           </div>
+          )}
         </section>
 
         <aside style={sidePanelStyle(colors)}>
@@ -744,14 +971,103 @@ function SchedulePage({ user = null, onLogout } = {}) {
           </section>
 
           <section style={panelCardStyle(colors)}>
+            <h2 style={panelTitleStyle(colors)}>录入考试</h2>
+            <p style={panelTextStyle(colors)}>
+              考试会进入月视图和自动复习规划，重要度越高越优先安排复习块。
+            </p>
+            <form onSubmit={addExam} style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
+              <label style={fieldStyle(colors)}>
+                <span>科目</span>
+                <input
+                  value={examSubject}
+                  onChange={(event) => setExamSubject(event.target.value)}
+                  placeholder="例如：高等数学期末"
+                  style={inputStyle(colors)}
+                />
+              </label>
+              <label style={fieldStyle(colors)}>
+                <span>考试时间</span>
+                <input
+                  type="datetime-local"
+                  value={examDate}
+                  onChange={(event) => setExamDate(event.target.value)}
+                  style={inputStyle(colors)}
+                />
+              </label>
+              <label style={fieldStyle(colors)}>
+                <span>复习目标</span>
+                <input
+                  value={examGoal}
+                  onChange={(event) => setExamGoal(event.target.value)}
+                  placeholder="例如：完成错题回看和公式整理"
+                  style={inputStyle(colors)}
+                />
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <label style={fieldStyle(colors)}>
+                  <span>重要度</span>
+                  <select value={examImportance} onChange={(event) => setExamImportance(event.target.value)} style={inputStyle(colors)}>
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={fieldStyle(colors)}>
+                  <span>复习块时长</span>
+                  <select value={examReviewMinutes} onChange={(event) => setExamReviewMinutes(event.target.value)} style={inputStyle(colors)}>
+                    <option value="30">30 分钟</option>
+                    <option value="60">60 分钟</option>
+                    <option value="90">90 分钟</option>
+                    <option value="120">120 分钟</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" style={primaryButtonStyle(colors)}>
+                保存考试
+              </button>
+            </form>
+            {exams.length > 0 && (
+              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                {exams.slice(0, 4).map((exam) => (
+                  <div key={exam.id} style={examMiniCardStyle(colors, exam.completed)}>
+                    <strong>{exam.subject}</strong>
+                    <span>{exam.date} · 重要度 {exam.importance}</span>
+                    {exam.goal && <span>{exam.goal}</span>}
+                    <div style={miniActionRowStyle}>
+                      <button type="button" onClick={() => toggleExamDone(exam.id)} style={miniButtonStyle(colors)}>
+                        {exam.completed ? "取消完成" : "完成"}
+                      </button>
+                      <button type="button" onClick={() => deleteExam(exam.id)} style={miniButtonStyle(colors)}>
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={panelCardStyle(colors)}>
             <h2 style={panelTitleStyle(colors)}>规划准备度</h2>
             <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
               <PlanningLine colors={colors} active={fixedClasses.length > 0} text="已录入固定课表" />
               <PlanningLine colors={colors} active={Boolean(semesterStartMonday)} text="已设置教学周过滤" />
               <PlanningLine colors={colors} active={weekDdls.length > 0} text="已有 DDL 截止时间" />
+              <PlanningLine colors={colors} active={weekExams.length > 0} text="已有考试信息" />
               <PlanningLine colors={colors} active={weekStudyPlanBlocks.length > 0} text="已生成本周复习块" />
-              <PlanningLine colors={colors} active={false} text="下一步：拖拽调整日程" />
+              <PlanningLine colors={colors} active={scheduleConflicts.length === 0} text="冲突检测通过" />
             </div>
+            {scheduleConflicts.length > 0 && (
+              <div style={conflictListStyle}>
+                {scheduleConflicts.slice(0, 4).map((conflict) => (
+                  <div key={conflict.key} style={conflictItemStyle(colors)}>
+                    {conflict.text}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section style={panelCardStyle(colors)}>
@@ -765,6 +1081,12 @@ function SchedulePage({ user = null, onLogout } = {}) {
               </button>
               <button type="button" onClick={clearWeeklyStudyPlan} style={outlineButtonStyle(colors)}>
                 清空本周
+              </button>
+              <button type="button" onClick={postponeUnfinishedStudyBlocks} style={outlineButtonStyle(colors)}>
+                顺延未完成
+              </button>
+              <button type="button" onClick={enableScheduleReminders} style={outlineButtonStyle(colors)}>
+                {remindersEnabled ? "提醒已开" : "开启提醒"}
               </button>
             </div>
             {weekStudyPlanBlocks.length === 0 ? (
@@ -781,6 +1103,9 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     <strong style={{ color: colors.title, fontSize: "13px" }}>{item.title}</strong>
                     <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
                       {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime} · {item.courseName}
+                    </span>
+                    <span style={{ color: item.completedAt ? colors.success : colors.text, fontSize: "12px", marginTop: "4px" }}>
+                      {item.completedAt ? "已完成" : "未完成"}
                     </span>
                   </button>
                 ))}
@@ -872,20 +1197,24 @@ function SchedulePage({ user = null, onLogout } = {}) {
   );
 }
 
-function ScheduleBlock({ item, colors, type, onDelete, onSelect }) {
+function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone }) {
   const start = clampStartMinutes(timeToMinutes(item.startTime));
   const end = clampMinutes(timeToMinutes(item.endTime));
   const top = ((start - START_HOUR * 60) / 60) * HOUR_HEIGHT;
   const height = Math.max(38, ((end - start) / 60) * HOUR_HEIGHT);
   const isDdl = type === "ddl";
   const isStudy = type === "study";
-  const blockBg = isDdl ? colors.ddlBg : isStudy ? colors.studyBg : colors.classBg;
+  const isExam = type === "exam";
+  const isDone = Boolean(item.completedAt);
+  const blockBg = isDdl ? colors.ddlBg : isExam ? colors.examBg : isStudy ? colors.studyBg : colors.classBg;
   const blockBorder = isDdl
     ? colors.warningBorder
+    : isExam
+      ? colors.examBorder
     : isStudy
       ? colors.studyBorder
       : colors.activeBorder;
-  const blockText = isDdl ? colors.warningText : isStudy ? colors.studyText : colors.activeText;
+  const blockText = isDdl ? colors.warningText : isExam ? colors.examText : isStudy ? colors.studyText : colors.activeText;
 
   return (
     <div
@@ -914,10 +1243,23 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect }) {
         overflow: "hidden",
         cursor: onSelect ? "pointer" : "default",
         zIndex: isDdl ? 4 : isStudy ? 3 : 2,
+        opacity: isDone ? 0.68 : 1,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-        <strong style={{ fontSize: "13px", lineHeight: 1.25 }}>{item.title}</strong>
+        <strong style={{ fontSize: "13px", lineHeight: 1.25, textDecoration: isDone ? "line-through" : "none" }}>{item.title}</strong>
+        {onToggleDone && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleDone();
+            }}
+            style={blockDoneStyle(colors, isDone)}
+          >
+            {isDone ? "✓" : "○"}
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
@@ -944,6 +1286,97 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect }) {
       )}
     </div>
   );
+}
+
+function MonthCalendar({ colors, monthDays, currentWeek, fixedClasses, ddls, exams, studyBlocks }) {
+  const month = currentWeek.getMonth();
+
+  return (
+    <div style={monthGridStyle(colors)}>
+      {WEEKDAYS.map((label) => (
+        <div key={label} style={monthWeekdayStyle(colors)}>
+          {label}
+        </div>
+      ))}
+      {monthDays.map((day) => {
+        const items = buildMonthDayItems({
+          date: day.date,
+          fixedClasses,
+          ddls,
+          exams,
+          studyBlocks,
+        });
+        const muted = day.date.getMonth() !== month;
+
+        return (
+          <div key={day.key} style={monthDayStyle(colors, muted, isToday(day.date))}>
+            <div style={monthDayNumberStyle(colors, muted)}>
+              {day.date.getDate()}
+            </div>
+            <div style={{ display: "grid", gap: "5px", marginTop: "8px" }}>
+              {items.slice(0, 4).map((item) => (
+                <div key={item.key} style={monthItemStyle(colors, item.type)}>
+                  {item.text}
+                </div>
+              ))}
+              {items.length > 4 && (
+                <div style={monthMoreStyle(colors)}>+{items.length - 4} 项</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function buildMonthDayItems({ date, fixedClasses, ddls, exams, studyBlocks }) {
+  const isoDay = getIsoDay(date);
+  const items = [];
+
+  fixedClasses
+    .filter((item) => Number(item.day) === isoDay)
+    .forEach((item) => {
+      items.push({
+        key: `class-${item.id}-${date.toISOString()}`,
+        type: "class",
+        text: `${item.startTime} ${item.title}`,
+      });
+    });
+
+  ddls
+    .map((ddl) => ({ ddl, date: parseScheduleDate(ddl.date) }))
+    .filter(({ ddl, date: ddlDate }) => !ddl.completed && ddlDate && isSameDate(ddlDate, date))
+    .forEach(({ ddl, date: ddlDate }) => {
+      items.push({
+        key: `ddl-${ddl.id}`,
+        type: "ddl",
+        text: `${formatTime(ddlDate)} ${ddl.title || "DDL"}`,
+      });
+    });
+
+  exams
+    .map((exam) => ({ exam, date: parseScheduleDate(exam.date) }))
+    .filter(({ exam, date: examDate }) => !exam.completed && examDate && isSameDate(examDate, date))
+    .forEach(({ exam, date: examDate }) => {
+      items.push({
+        key: `exam-${exam.id}`,
+        type: "exam",
+        text: `${formatTime(examDate)} ${exam.subject || "考试"}`,
+      });
+    });
+
+  studyBlocks
+    .filter((item) => isSameDate(parseScheduleDate(item.date), date))
+    .forEach((item) => {
+      items.push({
+        key: `study-${item.id}`,
+        type: "study",
+        text: `${item.startTime} ${item.title}`,
+      });
+    });
+
+  return items.sort((a, b) => extractLeadingMinutes(a.text) - extractLeadingMinutes(b.text));
 }
 
 function StatCard({ label, value, detail, colors }) {
@@ -982,6 +1415,9 @@ function buildColors(darkMode) {
     activeBorder: darkMode ? "rgba(147,197,253,0.34)" : "rgba(37,99,235,0.22)",
     classBg: darkMode ? "rgba(37,99,235,0.20)" : "#EEF5FF",
     ddlBg: darkMode ? "rgba(245,158,11,0.18)" : "#FFF7ED",
+    examBg: darkMode ? "rgba(168,85,247,0.18)" : "#F5F3FF",
+    examText: darkMode ? "#DDD6FE" : "#6D28D9",
+    examBorder: darkMode ? "rgba(168,85,247,0.34)" : "rgba(124,58,237,0.28)",
     studyBg: darkMode ? "rgba(16,185,129,0.18)" : "#ECFDF5",
     studyText: darkMode ? "#A7F3D0" : "#047857",
     studyBorder: darkMode ? "rgba(16,185,129,0.34)" : "rgba(16,185,129,0.30)",
@@ -1009,9 +1445,28 @@ function buildWeekDays(weekStart) {
   });
 }
 
+function buildMonthDays(anchorDate) {
+  const firstOfMonth = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+  const gridStart = startOfWeek(firstOfMonth);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = addDays(gridStart, index);
+    return {
+      key: date.toISOString(),
+      date,
+    };
+  });
+}
+
 function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
   return next;
 }
 
@@ -1034,6 +1489,11 @@ function isWithinWeek(date, weekStart) {
 function isToday(date) {
   const today = new Date();
   return date.toDateString() === today.toDateString();
+}
+
+function isSameDate(left, right) {
+  if (!left || !right) return false;
+  return left.toDateString() === right.toDateString();
 }
 
 function getTeachingWeek(weekStart, semesterStartMonday) {
@@ -1060,6 +1520,106 @@ function parseScheduleDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function detectScheduleConflicts({ fixedClasses, studyBlocks, exams, weekStart }) {
+  const events = [];
+
+  fixedClasses.forEach((item) => {
+    events.push({
+      key: `class-${item.id}`,
+      kind: "固定课",
+      title: item.title,
+      day: Number(item.day),
+      start: timeToMinutes(item.startTime),
+      end: timeToMinutes(item.endTime),
+      locked: true,
+    });
+  });
+
+  studyBlocks
+    .filter((item) => isWithinWeek(parseScheduleDate(item.date), weekStart))
+    .forEach((item) => {
+      events.push({
+        key: `study-${item.id}`,
+        kind: "复习",
+        title: item.title,
+        day: Number(item.day),
+        start: timeToMinutes(item.startTime),
+        end: timeToMinutes(item.endTime),
+      });
+    });
+
+  exams
+    .map((exam) => ({ exam, date: parseScheduleDate(exam.date) }))
+    .filter(({ date }) => date && isWithinWeek(date, weekStart))
+    .forEach(({ exam, date }) => {
+      const start = date.getHours() * 60 + date.getMinutes();
+      events.push({
+        key: `exam-${exam.id}`,
+        kind: "考试",
+        title: exam.subject,
+        day: getIsoDay(date),
+        start,
+        end: start + 90,
+      });
+    });
+
+  const conflicts = [];
+
+  for (let i = 0; i < events.length; i += 1) {
+    for (let j = i + 1; j < events.length; j += 1) {
+      const left = events[i];
+      const right = events[j];
+      if (left.day !== right.day) continue;
+      if (left.start >= right.end || right.start >= left.end) continue;
+
+      conflicts.push({
+        key: `${left.key}-${right.key}`,
+        text: `${WEEKDAYS[left.day - 1]} ${minutesToTime(Math.max(left.start, right.start))}：${left.kind}「${left.title}」与${right.kind}「${right.title}」冲突`,
+      });
+    }
+  }
+
+  return conflicts;
+}
+
+function buildUpcomingReminderEvents({ ddls, exams, studyBlocks }) {
+  const now = new Date();
+  const end = addDays(now, 7);
+  const events = [];
+
+  ddls.forEach((ddl) => {
+    const date = parseScheduleDate(ddl.date);
+    if (!date || ddl.completed || date < now || date > end) return;
+    events.push({
+      title: `DDL 提醒：${ddl.title || "未命名任务"}`,
+      detail: `${ddl.courseName || "未归属课程"} 将在 ${formatMonthDay(date)} ${formatTime(date)} 截止`,
+      date,
+    });
+  });
+
+  exams.forEach((exam) => {
+    const date = parseScheduleDate(exam.date);
+    if (!date || exam.completed || date < now || date > end) return;
+    events.push({
+      title: `考试提醒：${exam.subject || "考试"}`,
+      detail: exam.goal || `重要度 ${exam.importance || 3}`,
+      date,
+    });
+  });
+
+  studyBlocks.forEach((item) => {
+    const date = parseScheduleDate(`${item.date}T${item.startTime}`);
+    if (!date || item.completedAt || date < now || date > end) return;
+    events.push({
+      title: `复习提醒：${item.title}`,
+      detail: `${formatMonthDay(date)} ${item.startTime}-${item.endTime}`,
+      date,
+    });
+  });
+
+  return events.sort((a, b) => a.date - b.date);
+}
+
 function parseDateInput(value) {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -1071,6 +1631,15 @@ function parseDateInput(value) {
 function timeToMinutes(value) {
   const [hourText = "0", minuteText = "0"] = String(value || "").split(":");
   return Number(hourText) * 60 + Number(minuteText);
+}
+
+function minutesToTime(value) {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function extractLeadingMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 9999;
 }
 
 function clampMinutes(value) {
@@ -1159,6 +1728,33 @@ const statsGridStyle = {
   gap: "12px",
   marginBottom: "18px",
 };
+
+function viewToggleStyle(colors) {
+  return {
+    display: "inline-grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "4px",
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "12px",
+    padding: "4px",
+    marginBottom: "14px",
+  };
+}
+
+function viewToggleButtonStyle(colors, active) {
+  return {
+    border: "none",
+    borderRadius: "9px",
+    background: active ? colors.active : "transparent",
+    color: active ? "#FFFFFF" : colors.title,
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 900,
+    padding: "8px 14px",
+    fontFamily: "inherit",
+  };
+}
 
 const calendarScrollStyle = {
   overflowX: "auto",
@@ -1459,6 +2055,24 @@ function blockDeleteStyle(colors) {
   };
 }
 
+function blockDoneStyle(colors, done) {
+  return {
+    border: `1px solid ${done ? colors.success : colors.border}`,
+    background: done ? `${colors.success}22` : "transparent",
+    color: done ? colors.success : colors.text,
+    cursor: "pointer",
+    borderRadius: "999px",
+    width: "20px",
+    height: "20px",
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    fontSize: "12px",
+    lineHeight: 1,
+    padding: 0,
+  };
+}
+
 function ddlMiniCardStyle(colors) {
   return {
     display: "grid",
@@ -1466,6 +2080,135 @@ function ddlMiniCardStyle(colors) {
     border: `1px solid ${colors.border}`,
     borderRadius: "12px",
     padding: "11px",
+  };
+}
+
+function examMiniCardStyle(colors, completed) {
+  return {
+    display: "grid",
+    gap: "5px",
+    background: colors.examBg,
+    border: `1px solid ${colors.examBorder}`,
+    borderRadius: "12px",
+    padding: "11px",
+    color: completed ? colors.text : colors.examText,
+    opacity: completed ? 0.64 : 1,
+    fontSize: "12px",
+  };
+}
+
+const miniActionRowStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginTop: "6px",
+};
+
+function miniButtonStyle(colors) {
+  return {
+    height: "28px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "8px",
+    background: colors.panel,
+    color: colors.title,
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 800,
+    padding: "0 10px",
+  };
+}
+
+const conflictListStyle = {
+  display: "grid",
+  gap: "8px",
+  marginTop: "12px",
+};
+
+function conflictItemStyle(colors) {
+  return {
+    color: colors.warningText,
+    background: colors.ddlBg,
+    border: `1px solid ${colors.warningBorder}`,
+    borderRadius: "10px",
+    padding: "9px 10px",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  };
+}
+
+function monthGridStyle(colors) {
+  return {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "18px",
+    overflow: "hidden",
+    background: colors.panel,
+  };
+}
+
+function monthWeekdayStyle(colors) {
+  return {
+    background: colors.card,
+    color: colors.text,
+    borderRight: `1px solid ${colors.border}`,
+    borderBottom: `1px solid ${colors.border}`,
+    padding: "10px",
+    textAlign: "center",
+    fontSize: "12px",
+    fontWeight: 900,
+  };
+}
+
+function monthDayStyle(colors, muted, active) {
+  return {
+    minHeight: "116px",
+    padding: "10px",
+    borderRight: `1px solid ${colors.border}`,
+    borderBottom: `1px solid ${colors.border}`,
+    background: active ? colors.classBg : colors.panel,
+    opacity: muted ? 0.58 : 1,
+    minWidth: 0,
+  };
+}
+
+function monthDayNumberStyle(colors, muted) {
+  return {
+    color: muted ? colors.muted : colors.title,
+    fontSize: "13px",
+    fontWeight: 900,
+  };
+}
+
+function monthItemStyle(colors, type) {
+  const palette =
+    type === "ddl"
+      ? { bg: colors.ddlBg, border: colors.warningBorder, text: colors.warningText }
+      : type === "exam"
+        ? { bg: colors.examBg, border: colors.examBorder, text: colors.examText }
+        : type === "study"
+          ? { bg: colors.studyBg, border: colors.studyBorder, text: colors.studyText }
+          : { bg: colors.classBg, border: colors.activeBorder, text: colors.activeText };
+
+  return {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    background: palette.bg,
+    border: `1px solid ${palette.border}`,
+    color: palette.text,
+    borderRadius: "8px",
+    padding: "5px 7px",
+    fontSize: "11px",
+    fontWeight: 800,
+  };
+}
+
+function monthMoreStyle(colors) {
+  return {
+    color: colors.muted,
+    fontSize: "11px",
+    fontWeight: 800,
   };
 }
 
