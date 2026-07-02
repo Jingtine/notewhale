@@ -19,6 +19,58 @@ async function probeBackend() {
   }
 }
 
+function normalizeDesktopStatus(result = {}) {
+  const state = result.state || "unknown";
+  const labels = {
+    ready: "本地服务运行中",
+    starting: "本地服务启动中",
+    stopping: "本地服务关闭中",
+    timeout: "本地服务启动超时",
+    missing: "本地环境未初始化",
+    stopped: "本地服务已停止",
+    error: "本地服务异常",
+    unknown: "本地服务状态未知",
+  };
+
+  return {
+    available: true,
+    state,
+    label: labels[state] || labels.unknown,
+    message: result.message || "桌面服务状态未知。",
+    managed: Boolean(result.managed),
+    url: result.url || "http://127.0.0.1:8000",
+  };
+}
+
+async function readDesktopStatus() {
+  const bridge =
+    typeof window !== "undefined" ? window.notewhaleDesktop : null;
+
+  if (typeof bridge?.getBackendStatus !== "function") {
+    return {
+      available: false,
+      state: "browser",
+      label: "浏览器模式",
+      message: "当前不是桌面版，后端服务由外部环境提供。",
+      managed: false,
+      url: API_BASE_URL,
+    };
+  }
+
+  try {
+    return normalizeDesktopStatus(await bridge.getBackendStatus());
+  } catch (error) {
+    return {
+      available: true,
+      state: "error",
+      label: "状态读取失败",
+      message: error?.message || "无法读取桌面服务状态。",
+      managed: false,
+      url: API_BASE_URL,
+    };
+  }
+}
+
 function LoginPage({ onLogin }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -30,6 +82,14 @@ function LoginPage({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [apiState, setApiState] = useState("checking");
+  const [desktopStatus, setDesktopStatus] = useState({
+    available: false,
+    state: "checking",
+    label: "检测中",
+    message: "正在检测登录所需服务。",
+    managed: false,
+    url: API_BASE_URL,
+  });
 
   const from = searchParams.get("from") || "/";
 
@@ -37,9 +97,13 @@ function LoginPage({ onLogin }) {
     let mounted = true;
 
     async function checkApi() {
-      const isOnline = await probeBackend();
+      const [isOnline, nextDesktopStatus] = await Promise.all([
+        probeBackend(),
+        readDesktopStatus(),
+      ]);
       if (!mounted) return;
       setApiState(isOnline ? "online" : "local");
+      setDesktopStatus(nextDesktopStatus);
     }
 
     checkApi();
@@ -61,40 +125,73 @@ function LoginPage({ onLogin }) {
 
     if (apiState === "online") {
       return {
-        text: "后端连接正常",
+        text: desktopStatus.available ? desktopStatus.label : "后端连接正常",
         dot: "#10B981",
         bg: "#ECFDF5",
         color: "#047857",
       };
     }
 
+    if (desktopStatus.available && desktopStatus.state === "starting") {
+      return {
+        text: "本地服务启动中",
+        dot: "#F59E0B",
+        bg: "#FFF7ED",
+        color: "#B45309",
+      };
+    }
+
     return {
-      text: "本地体验模式",
-      dot: "#3B82F6",
-      bg: "#EFF6FF",
-      color: "#1D4ED8",
+      text: desktopStatus.available ? desktopStatus.label : "本地体验模式",
+      dot: desktopStatus.available ? "#F59E0B" : "#3B82F6",
+      bg: desktopStatus.available ? "#FFF7ED" : "#EFF6FF",
+      color: desktopStatus.available ? "#B45309" : "#1D4ED8",
     };
-  }, [apiState]);
+  }, [apiState, desktopStatus]);
+
+  async function refreshBackendStatus({ showMessage = true } = {}) {
+    setLoading(true);
+    if (showMessage) {
+      setError("正在重新检测登录服务...");
+    }
+
+    const [isOnline, nextDesktopStatus] = await Promise.all([
+      probeBackend(),
+      readDesktopStatus(),
+    ]);
+
+    setApiState(isOnline ? "online" : "local");
+    setDesktopStatus(nextDesktopStatus);
+    setLoading(false);
+
+    if (isOnline) {
+      if (showMessage) {
+        setError("");
+      }
+      return true;
+    }
+
+    if (showMessage) {
+      setError(
+        nextDesktopStatus.available
+          ? `${nextDesktopStatus.label}：${nextDesktopStatus.message}`
+          : "要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。"
+      );
+    }
+
+    return false;
+  }
 
   async function submit() {
     const cleanAccount = account.trim();
     const cleanName = name.trim() || cleanAccount.split("@")[0];
 
     if (apiState !== "online") {
-      setLoading(true);
-      setError("正在重新检测后端连接...");
-
-      const isOnline = await probeBackend();
-      setApiState(isOnline ? "online" : "local");
+      const isOnline = await refreshBackendStatus();
 
       if (!isOnline) {
-        setLoading(false);
-        setError("要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。");
         return;
       }
-
-      setLoading(false);
-      setError("");
     }
 
     if (!cleanAccount) {
@@ -189,8 +286,10 @@ function LoginPage({ onLogin }) {
             </span>
             <span style={{ color: "#64748B" }}>
               {apiState === "online"
-                ? "API 可用，后续可切换真实数据"
-                : "后端未启动时仍可完成前端演示"}
+                ? "账号登录、同步和资料接口可用"
+                : desktopStatus.available
+                  ? desktopStatus.message
+                  : "后端未启动时仍可完成前端演示"}
             </span>
           </div>
         </section>
@@ -219,6 +318,13 @@ function LoginPage({ onLogin }) {
               {apiState === "online" ? "API" : "Local"}
             </span>
           </div>
+
+          <ServiceStatusPanel
+            apiState={apiState}
+            desktopStatus={desktopStatus}
+            loading={loading}
+            onRetry={() => refreshBackendStatus()}
+          />
 
           <div style={switchStyle}>
             <button
@@ -327,6 +433,73 @@ function FeatureCard({ title, text }) {
       <p style={{ margin: "8px 0 0", color: "#64748B", fontSize: "13px", lineHeight: 1.6 }}>
         {text}
       </p>
+    </div>
+  );
+}
+
+function ServiceStatusPanel({ apiState, desktopStatus, loading, onRetry }) {
+  const isOnline = apiState === "online";
+  const toneColor = isOnline ? "#10B981" : "#F59E0B";
+  const desktopLabel = desktopStatus.available
+    ? desktopStatus.label
+    : "浏览器环境";
+  const modeText = desktopStatus.available
+    ? desktopStatus.managed
+      ? "桌面托管"
+      : "外部服务"
+    : "外部服务";
+
+  return (
+    <div style={servicePanelStyle}>
+      <div style={serviceHeaderStyle}>
+        <div>
+          <div style={serviceEyebrowStyle}>登录服务</div>
+          <strong style={serviceTitleStyle}>
+            {isOnline ? "账号服务已就绪" : desktopLabel}
+          </strong>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={loading}
+          style={serviceRetryButtonStyle(loading)}
+        >
+          重新检测
+        </button>
+      </div>
+
+      <div style={serviceMetaGridStyle}>
+        <ServiceMeta
+          label="API"
+          value={isOnline ? "在线" : "未连接"}
+          color={toneColor}
+        />
+        <ServiceMeta
+          label="桌面"
+          value={desktopStatus.available ? "已启用" : "未启用"}
+          color={desktopStatus.available ? "#2563EB" : "#64748B"}
+        />
+        <ServiceMeta
+          label="方式"
+          value={modeText}
+          color="#183B63"
+        />
+      </div>
+
+      <p style={serviceMessageStyle}>
+        {isOnline
+          ? "可以登录或注册账号，课程、DDL、笔记和资料会按账号同步。"
+          : desktopStatus.message}
+      </p>
+    </div>
+  );
+}
+
+function ServiceMeta({ label, value, color }) {
+  return (
+    <div style={serviceMetaStyle}>
+      <span style={serviceMetaLabelStyle}>{label}</span>
+      <strong style={{ ...serviceMetaValueStyle, color }}>{value}</strong>
     </div>
   );
 }
@@ -477,6 +650,9 @@ const loginCardStyle = {
   padding: "30px",
   boxShadow: "0 24px 60px rgba(15,42,74,0.12)",
   boxSizing: "border-box",
+  display: "flex",
+  flexDirection: "column",
+  overflowY: "auto",
 };
 
 const cardHeaderStyle = {
@@ -511,6 +687,90 @@ const apiBadgeStyle = {
   fontSize: "12px",
   fontWeight: 800,
   flexShrink: 0,
+};
+
+const servicePanelStyle = {
+  border: "1px solid #DDE8F7",
+  borderRadius: "16px",
+  background: "#F8FBFF",
+  padding: "14px",
+  marginBottom: "18px",
+};
+
+const serviceHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "12px",
+};
+
+const serviceEyebrowStyle = {
+  color: "#64748B",
+  fontSize: "12px",
+  fontWeight: 800,
+};
+
+const serviceTitleStyle = {
+  display: "block",
+  color: "#183B63",
+  fontSize: "16px",
+  fontWeight: 900,
+  marginTop: "4px",
+};
+
+function serviceRetryButtonStyle(disabled) {
+  return {
+    height: "32px",
+    border: "1px solid #BFDBFE",
+    borderRadius: "10px",
+    background: "#FFFFFF",
+    color: "#2563EB",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "12px",
+    fontWeight: 850,
+    padding: "0 10px",
+    opacity: disabled ? 0.62 : 1,
+    flexShrink: 0,
+  };
+}
+
+const serviceMetaGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "8px",
+  marginTop: "12px",
+};
+
+const serviceMetaStyle = {
+  minWidth: 0,
+  border: "1px solid #E2E8F0",
+  borderRadius: "12px",
+  background: "#FFFFFF",
+  padding: "9px 10px",
+};
+
+const serviceMetaLabelStyle = {
+  display: "block",
+  color: "#94A3B8",
+  fontSize: "11px",
+  fontWeight: 850,
+};
+
+const serviceMetaValueStyle = {
+  display: "block",
+  marginTop: "4px",
+  fontSize: "13px",
+  fontWeight: 900,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const serviceMessageStyle = {
+  margin: "10px 0 0",
+  color: "#64748B",
+  fontSize: "12px",
+  lineHeight: 1.6,
 };
 
 const smallDotStyle = {
