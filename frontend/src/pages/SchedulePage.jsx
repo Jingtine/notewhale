@@ -7,6 +7,12 @@ import { getDdls as getBackendDdls } from "../api/ddlApi";
 import { getFolders as getBackendFolders } from "../api/folderApi";
 import { mapBackendFolder } from "../data/courseFolderStore";
 import { mapBackendDdl } from "../data/learningItemMappers";
+import {
+  NJU_AUTH_SCHEDULE_URL,
+  NJU_SCHEDULE_EXTRACTOR_SCRIPT,
+  NJU_UNDERGRAD_SCHEDULE_TARGET_URL,
+  mapNjuSchedulePayloadToFixedClasses,
+} from "../data/njuScheduleExtractor";
 import { parseScheduleImportText } from "../data/scheduleImport";
 import {
   readStorageBoolean,
@@ -23,8 +29,7 @@ const END_HOUR = 22;
 const HOUR_HEIGHT = 64;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
-const NJU_TEACHING_DIRECT_URL =
-  "https://authserver.nju.edu.cn/authserver/login?service=https%3A%2F%2Fehallapp.nju.edu.cn%2Fjwapp%2Fsys%2Fwdkb%2F*default%2Findex.do%23%2Fxskcb";
+const NJU_TEACHING_DIRECT_URL = NJU_AUTH_SCHEDULE_URL;
 const NJU_TEACHING_PORTAL_URL =
   "https://jw.nju.edu.cn/24777/list.htm";
 
@@ -55,12 +60,13 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [scheduleImportPreview, setScheduleImportPreview] = useState([]);
   const [scheduleImportErrors, setScheduleImportErrors] = useState([]);
   const [scheduleImportMessage, setScheduleImportMessage] = useState(
-    "不保存账号密码，仅解析你粘贴或导出的课表内容。"
+    "不保存账号密码；桌面版可在认证后自动读取，网页版可粘贴或导入课表内容。"
   );
   const [selectedFolder, setSelectedFolder] = useState("学习日程");
   const [searchText, setSearchText] = useState("");
 
   const colors = buildColors(darkMode);
+  const hasDesktopScheduleBridge = hasNjuScheduleBridge();
   const weekDays = useMemo(() => buildWeekDays(currentWeek), [currentWeek]);
   const courses = useMemo(
     () => folders.flatMap((folder) => folder.courses || folder.items || []),
@@ -201,9 +207,47 @@ function SchedulePage({ user = null, onLogout } = {}) {
     window.open(url, "_blank", "noopener,noreferrer");
     setScheduleImportMessage(
       direct
-        ? "已打开南京大学统一认证课表入口。登录后进入“我的课表”，复制或导出课表再粘贴回来解析。"
+        ? "已打开南京大学统一认证课表入口。当前网页版无法读取另一个域名页面；桌面版会在认证后自动注入脚本读取。"
         : "已打开南京大学本科生院官方入口。若校外访问失败，先连接学校 VPN，再进入教服平台复制或导出课表。"
     );
+  }
+
+  async function autoImportNjuSchedule() {
+    if (!hasNjuScheduleBridge()) {
+      openNjuTeachingPortal(NJU_TEACHING_DIRECT_URL, true);
+      setScheduleImportMessage(
+        "已打开南京大学统一认证。纯网页受浏览器同源限制，不能自动读取课表；后续桌面版会在这个步骤后自动回填。"
+      );
+      return;
+    }
+
+    try {
+      setScheduleImportMessage("正在等待南京大学统一认证完成并读取课表...");
+      const payload = await window.notewhaleDesktop.importNjuSchedule({
+        initialUrl: NJU_TEACHING_DIRECT_URL,
+        targetUrl: NJU_UNDERGRAD_SCHEDULE_TARGET_URL,
+        extractorScript: NJU_SCHEDULE_EXTRACTOR_SCRIPT,
+      });
+      const stamp = Date.now();
+      const importedClasses = mapNjuSchedulePayloadToFixedClasses(payload, {
+        idPrefix: `nju-auto-${stamp}`,
+      });
+
+      if (importedClasses.length === 0) {
+        setScheduleImportPreview([]);
+        setScheduleImportErrors(["未从南大课表页面读取到课程。"]);
+        setScheduleImportMessage("没有读取到课程，请确认已进入“我的课表”页面。");
+        return;
+      }
+
+      setScheduleImportPreview(importedClasses);
+      setScheduleImportErrors([]);
+      setFixedClasses((prev) => [...prev, ...importedClasses]);
+      setScheduleImportMessage(`已自动读取并导入 ${importedClasses.length} 个上课时间块。`);
+    } catch (error) {
+      setScheduleImportErrors([error?.message || "自动读取失败"]);
+      setScheduleImportMessage("自动读取失败，可以先使用粘贴导入。");
+    }
   }
 
   function readScheduleImportFile(event) {
@@ -420,10 +464,10 @@ function SchedulePage({ user = null, onLogout } = {}) {
             <div style={importActionRowStyle}>
               <button
                 type="button"
-                onClick={() => openNjuTeachingPortal(NJU_TEACHING_DIRECT_URL, true)}
+                onClick={autoImportNjuSchedule}
                 style={primaryButtonStyle(colors)}
               >
-                统一认证直达
+                认证并自动读取
               </button>
               <button
                 type="button"
@@ -436,6 +480,11 @@ function SchedulePage({ user = null, onLogout } = {}) {
                 解析预览
               </button>
             </div>
+            <p style={importMessageStyle(colors)}>
+              {hasDesktopScheduleBridge
+                ? "已检测到桌面自动读取能力，认证后会自动回填课表。"
+                : "当前运行在网页环境，认证页打开后只能手动复制或导出；桌面版会自动读取。"}
+            </p>
             <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
               <span>本学期第 1 周周一</span>
               <div style={semesterInputRowStyle}>
@@ -823,6 +872,13 @@ function formatWeeks(weeks) {
   if (!Array.isArray(weeks) || weeks.length === 0) return "";
 
   return `${weeks.join(",")}周`;
+}
+
+function hasNjuScheduleBridge() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.notewhaleDesktop?.importNjuSchedule === "function"
+  );
 }
 
 const pageGridStyle = {
