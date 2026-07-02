@@ -4,6 +4,10 @@ export async function getNotes() {
   return request("/api/notes");
 }
 
+export async function getAiStatus() {
+  return request("/api/ai/status");
+}
+
 export async function createNote({
   title,
   content = "",

@@ -10,6 +10,7 @@ import os
 import secrets
 import urllib.request
 import urllib.error
+import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -55,6 +56,42 @@ VISION_MODEL = os.getenv("NOTEWHALE_VISION_MODEL", "").strip()
 TEXT_API_URL = os.getenv("NOTEWHALE_TEXT_API_URL", VISION_API_URL).strip()
 TEXT_API_KEY = os.getenv("NOTEWHALE_TEXT_API_KEY", VISION_API_KEY).strip()
 TEXT_MODEL = os.getenv("NOTEWHALE_TEXT_MODEL", "glm-4-flash-250414").strip()
+
+
+def get_api_host(api_url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(api_url or "")
+        return parsed.netloc or ""
+    except Exception:
+        return ""
+
+
+def build_ai_provider_status(api_url: str, api_key: str, model: str, label: str):
+    host = get_api_host(api_url)
+    missing = []
+
+    if not api_url:
+        missing.append("API URL")
+    if not api_key:
+        missing.append("API Key")
+    if not model:
+        missing.append("Model")
+
+    configured = not missing
+    message = f"{label}模型配置完整。"
+
+    if missing:
+        message = f"{label}模型缺少：{', '.join(missing)}。请检查 backend/.env。"
+
+    return {
+        "configured": configured,
+        "apiUrlConfigured": bool(api_url),
+        "apiKeyConfigured": bool(api_key),
+        "modelConfigured": bool(model),
+        "host": host,
+        "model": model or "",
+        "message": message,
+    }
 
 
 def safe_add_column(conn, table_name: str, column_name: str, column_sql: str):
@@ -470,6 +507,24 @@ def health():
         "status": "ok",
         "service": "notewhale-backend",
         "version": "0.7.3-persist-extracted-text",
+    }
+
+
+@app.get("/api/ai/status")
+def ai_status(current_user: User = Depends(get_current_user)):
+    return {
+        "text": build_ai_provider_status(
+            TEXT_API_URL,
+            TEXT_API_KEY,
+            TEXT_MODEL,
+            "文本",
+        ),
+        "vision": build_ai_provider_status(
+            VISION_API_URL,
+            VISION_API_KEY,
+            VISION_MODEL,
+            "视觉",
+        ),
     }
 
 
@@ -1518,50 +1573,8 @@ def strip_markdown_fence(value: str):
     return text_value.strip()
 
 
-def call_text_agent_for_course_note(
-    course_name: str,
-    resource_name: str,
-    resource_text: str,
-    note_style: str = "复习型",
-):
-    """
-    DeepSeek 稳定版：
-    - 必须调用 DeepSeek / OpenAI-compatible chat/completions；
-    - 控制输入长度和输出长度，避免 Render 请求超时导致前端 Failed to fetch；
-    - 如果 DeepSeek 返回错误，后端返回可读 detail，不让前端只看到空泛错误。
-    """
-    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
-        raise HTTPException(
-            status_code=503,
-            detail="未配置 DeepSeek 文本模型。请在 Render 环境变量中设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
-        )
-
-    clean_text = normalize_ai_text(resource_text, max_length=6500)
-
-    if len(clean_text) < 20:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "没有读取到足够的资料正文。"
-                "请先点资料右侧“查看”确认文件能打开；"
-                "如果是旧资料记录，Render 重新部署后原文件可能已丢失，需要删除后重新上传。"
-                "若 Word/PPT 仍失败，请确认上传的是 .docx / .pptx，不是 .doc / .ppt。"
-            ),
-        )
-
-    prompt = f"""
-你是 NoteWhale 的课程资料精读笔记智能体。请根据用户上传资料的可读取正文，生成一份中文 Markdown 复习笔记。
-
-硬性要求：
-1. 必须基于资料正文，不要编造资料中没有的信息。
-2. 不要只写空泛大纲，要尽量保留资料中的具体概念、定义、观点、分类、逻辑关系。
-3. 输出 Markdown 正文，不要包裹代码块。
-4. 笔记长度控制在 1200-1800 字，保证稳定返回。
-5. 如果资料中有公式，请用 $...$ 或 $$...$$ 包裹，并用中文解释符号含义。
-6. 如果资料信息不足，请明确写“资料中未给出”。
-
-请按下面结构输出：
-
+NOTE_STYLE_OUTPUT_STRUCTURES = {
+    "复习型": """
 # {resource_name}｜AI 课程笔记
 
 ## 一、资料速读
@@ -1571,11 +1584,7 @@ def call_text_agent_for_course_note(
 用分层列表梳理资料结构，不要泛泛而谈，尽量使用资料中的原词。
 
 ## 三、重点内容精读
-按资料顺序整理 5-8 个重点小节。每个小节包括：
-- 本节讲什么
-- 关键概念
-- 逻辑关系
-- 复习提醒
+按资料顺序整理 5-8 个重点小节。每个小节包括：本节讲什么、关键概念、逻辑关系、复习提醒。
 
 ## 四、重点概念详解
 选出 6-10 个资料中的概念。每个概念解释：含义、重要性、相关概念、易错点。
@@ -1588,84 +1597,316 @@ def call_text_agent_for_course_note(
 
 ## 七、待补充清单
 列出需要学生继续补充的课堂内容、教材页码、案例或图表解释。
+""",
+    "提纲型": """
+# {resource_name}｜课程提纲笔记
+
+## 一、总览
+用 3-5 条 bullet 概括资料主题和章节关系。
+
+## 二、层级提纲
+按资料原有顺序输出二到三级标题结构，每个节点保留关键原词和必要解释。
+
+## 三、概念索引
+列出资料中出现的重要概念，并标注它们所属章节或语境。
+
+## 四、逻辑链路
+用编号列表整理资料中的推导、因果、分类或对比关系。
+
+## 五、后续整理
+列出适合学生补充到课堂笔记里的图表、案例、页码或待查内容。
+""",
+    "考点型": """
+# {resource_name}｜考点整理
+
+## 一、高频考点预判
+从资料中提炼 6-10 个可能用于考试、作业或课堂提问的重点。
+
+## 二、必背概念
+列出关键定义、公式、分类、代表人物或理论，并说明记忆抓手。
+
+## 三、易错与易混
+整理容易混淆的概念、条件、步骤或结论，明确区分方式。
+
+## 四、答题模板
+把资料中的论证或解题过程整理成可复用的答题步骤。
+
+## 五、自测题
+给出 5-8 个题目，并附简短答题要点。
+""",
+    "精简型": """
+# {resource_name}｜精简笔记
+
+## 一、三句话速读
+用三句话说清资料讲了什么、为什么重要、应该记住什么。
+
+## 二、核心要点
+只保留最重要的 6-10 条知识点，每条 1-2 句话。
+
+## 三、关键词
+列出关键术语，并给出一句话解释。
+
+## 四、立即复习
+给出 3-5 个最值得马上回看的问题。
+""",
+}
+
+
+def get_note_style_output_structure(note_style: str, resource_name: str) -> str:
+    style_key = (note_style or "复习型").strip()
+    template = NOTE_STYLE_OUTPUT_STRUCTURES.get(style_key, NOTE_STYLE_OUTPUT_STRUCTURES["复习型"])
+    return template.format(resource_name=resource_name or "课程资料").strip()
+
+
+def split_text_for_ai(text: str, chunk_size: int = 5200, overlap: int = 450, max_chunks: int = 6):
+    clean_text = normalize_ai_text(text, max_length=50000)
+    if len(clean_text) <= chunk_size:
+        return [clean_text] if clean_text else []
+
+    chunks = []
+    start = 0
+
+    while start < len(clean_text) and len(chunks) < max_chunks:
+        end = min(start + chunk_size, len(clean_text))
+        chunks.append(clean_text[start:end])
+
+        if end >= len(clean_text):
+            break
+
+        start = max(end - overlap, start + 1)
+
+    return chunks
+
+
+def call_text_model(
+    prompt: str,
+    system_prompt: str,
+    max_tokens: int = 2200,
+    timeout: int = 55,
+    max_continuations: int = 0,
+):
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt,
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ]
+    parts = []
+
+    for attempt in range(max_continuations + 1):
+        body = {
+            "model": TEXT_MODEL,
+            "messages": messages,
+            "temperature": 0.25,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+
+        request = urllib.request.Request(
+            TEXT_API_URL,
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {TEXT_API_KEY}",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8", errors="ignore")
+                result = json.loads(raw)
+        except urllib.error.HTTPError as error:
+            try:
+                error_body = error.read().decode("utf-8", errors="ignore")
+            except Exception:
+                error_body = str(error)
+
+            if error.code == 401:
+                detail = "文本模型 API Key 无效或没有权限，请检查 backend/.env 里的 NOTEWHALE_TEXT_API_KEY。"
+            elif error.code == 429:
+                detail = "文本模型请求过于频繁或额度受限，请等待 1-3 分钟后重试。"
+            elif error.code in {400, 422}:
+                detail = f"文本模型请求参数错误，请检查模型名和接口地址。返回：{error_body[:500]}"
+            else:
+                detail = f"文本模型调用失败，HTTP {error.code}：{error_body[:500]}"
+
+            raise HTTPException(status_code=502, detail=detail)
+        except Exception as error:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "文本模型调用超时或网络中断。"
+                    "请先用较小的资料测试，或稍后重试。"
+                    f"错误：{str(error)[:300]}"
+                ),
+            )
+
+        try:
+            choice = result["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason") or ""
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail=f"文本模型返回格式异常，未找到 choices[0].message.content。返回：{str(result)[:500]}",
+            )
+
+        content = strip_markdown_fence(content)
+        if content:
+            parts.append(content)
+
+        was_cut_off = finish_reason in {"length", "max_tokens"}
+        if not was_cut_off or attempt >= max_continuations:
+            break
+
+        messages.append({"role": "assistant", "content": content})
+        messages.append({
+            "role": "user",
+            "content": (
+                "你的上一段回复因为长度限制中断了。"
+                "请从中断处继续写，不要重复已经写过的内容；"
+                "优先把未完成的句子、列表和章节补完整，最后用一句“（完）”结束。"
+            ),
+        })
+
+    merged_content = "\n\n".join(part for part in parts if part).strip()
+
+    if not merged_content or len(merged_content) < 40:
+        raise HTTPException(status_code=502, detail="文本模型返回内容过短，请稍后重试或换用文字更多的资料。")
+
+    return merged_content
+
+
+def summarize_long_resource_text(course_name: str, resource_name: str, resource_text: str):
+    chunks = split_text_for_ai(resource_text)
+    if len(chunks) <= 1:
+        return normalize_ai_text(resource_text, max_length=6500), len(chunks)
+
+    summaries = []
+    total_chunks = len(chunks)
+
+    for index, chunk in enumerate(chunks, start=1):
+        prompt = f"""
+你正在为长课程资料做分块精读摘要。请只根据本段资料整理，不要补充资料外内容。
+
+课程：{course_name or "未命名课程"}
+资料：{resource_name or "课程资料"}
+分块：{index}/{total_chunks}
+
+请输出 Markdown，控制在 500-800 字：
+
+## 分块 {index} 摘要
+- 本段主题：
+- 关键概念：
+- 重要定义/公式/数据：
+- 逻辑关系：
+- 可能考点：
+- 待回看细节：
+
+本段资料正文：
+{chunk}
+""".strip()
+
+        summary = call_text_model(
+            prompt=prompt,
+            system_prompt="你是严谨的课程资料分块摘要助手，只根据用户提供的当前分块内容整理。",
+            max_tokens=950,
+            timeout=45,
+        )
+        summaries.append(summary)
+
+    merged = "\n\n".join(
+        f"<!-- chunk {index + 1}/{total_chunks} -->\n{summary}"
+        for index, summary in enumerate(summaries)
+    )
+
+    return normalize_ai_text(merged, max_length=14000), total_chunks
+
+
+def call_text_agent_for_course_note(
+    course_name: str,
+    resource_name: str,
+    resource_text: str,
+    note_style: str = "复习型",
+):
+    """
+    OpenAI-compatible 文本模型调用：
+    - 调用兼容 chat/completions 的文本模型接口；
+    - 控制输入长度和输出长度，避免 Render 请求超时导致前端 Failed to fetch；
+    - 如果模型服务返回错误，后端返回可读 detail，不让前端只看到空泛错误。
+    """
+    if not TEXT_API_URL or not TEXT_API_KEY or not TEXT_MODEL:
+        raise HTTPException(
+            status_code=503,
+            detail="未配置文本模型。请在 backend/.env 或系统环境变量中设置 NOTEWHALE_TEXT_API_URL / NOTEWHALE_TEXT_API_KEY / NOTEWHALE_TEXT_MODEL。",
+        )
+
+    clean_text = normalize_ai_text(resource_text, max_length=50000)
+    output_structure = get_note_style_output_structure(note_style, resource_name)
+
+    if len(clean_text) < 20:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "没有读取到足够的资料正文。"
+                "请先点资料右侧“查看”确认文件能打开；"
+                "如果是旧资料记录，Render 重新部署后原文件可能已丢失，需要删除后重新上传。"
+                "若 Word/PPT 仍失败，请确认上传的是 .docx / .pptx，不是 .doc / .ppt。"
+            ),
+        )
+
+    prepared_text, chunk_count = summarize_long_resource_text(
+        course_name=course_name,
+        resource_name=resource_name,
+        resource_text=clean_text,
+    )
+    long_doc_instruction = (
+        f"这是一份长文档，已先分成 {chunk_count} 段做精读摘要。请综合所有分块摘要生成最终笔记，不要只依据某一段。"
+        if chunk_count > 1
+        else "这是一份常规长度资料，请根据资料正文生成最终笔记。"
+    )
+
+    prompt = f"""
+你是 NoteWhale 的课程资料精读笔记智能体。请根据用户上传资料的可读取正文，生成一份中文 Markdown 复习笔记。
+
+硬性要求：
+1. 必须基于资料正文，不要编造资料中没有的信息。
+2. 不要只写空泛大纲，要尽量保留资料中的具体概念、定义、观点、分类、逻辑关系。
+3. 输出 Markdown 正文，不要包裹代码块。
+4. 笔记长度控制在 1200-1800 字，保证稳定返回。
+5. 如果资料中有公式，请用 $...$ 或 $$...$$ 包裹，并用中文解释符号含义。
+6. 如果资料信息不足，请明确写“资料中未给出”。
+7. {long_doc_instruction}
+8. 必须完整收尾，不要在半句话、年份、编号或列表项中突然结束；内容过多时宁可压缩后续条目。
+
+请严格按“{note_style}”风格输出，并使用下面结构：
+
+{output_structure}
 
 课程：{course_name or "未命名课程"}
 资料：{resource_name}
 笔记类型：{note_style}
+资料处理：{"长文档分块摘要" if chunk_count > 1 else "直接读取正文"}
 
-资料正文：
-{clean_text}
+资料正文或分块摘要：
+{prepared_text}
 """.strip()
 
-    body = {
-        "model": TEXT_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一个严谨的课程资料精读与复习笔记生成助手，只根据用户提供的资料正文写笔记。",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0.25,
-        "max_tokens": 2200,
-        "stream": False,
-    }
-
-    request = urllib.request.Request(
-        TEXT_API_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {TEXT_API_KEY}",
-        },
-        method="POST",
+    content = call_text_model(
+        prompt=prompt,
+        system_prompt="你是一个严谨的课程资料精读与复习笔记生成助手，只根据用户提供的资料正文或分块摘要写笔记。",
+        max_tokens=3200,
+        timeout=55,
+        max_continuations=2,
     )
 
-    try:
-        with urllib.request.urlopen(request, timeout=55) as response:
-            raw = response.read().decode("utf-8", errors="ignore")
-            result = json.loads(raw)
-    except urllib.error.HTTPError as error:
-        try:
-            error_body = error.read().decode("utf-8", errors="ignore")
-        except Exception:
-            error_body = str(error)
-
-        if error.code == 401:
-            detail = "DeepSeek API Key 无效或没有权限，请检查 Render 环境变量 NOTEWHALE_TEXT_API_KEY。"
-        elif error.code == 429:
-            detail = "DeepSeek 请求过于频繁或额度受限，请等待 1-3 分钟后重试。"
-        elif error.code in {400, 422}:
-            detail = f"DeepSeek 请求参数错误，请检查模型名和接口地址。返回：{error_body[:500]}"
-        else:
-            detail = f"DeepSeek 调用失败，HTTP {error.code}：{error_body[:500]}"
-
-        raise HTTPException(status_code=502, detail=detail)
-    except Exception as error:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "DeepSeek 调用超时或网络中断。"
-                "请先用较小的资料测试，或稍后重试。"
-                f"错误：{str(error)[:300]}"
-            ),
-        )
-
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except Exception:
-        raise HTTPException(
-            status_code=502,
-            detail=f"DeepSeek 返回格式异常，未找到 choices[0].message.content。返回：{str(result)[:500]}",
-        )
-
-    content = strip_markdown_fence(content)
-
     if not content or len(content) < 80:
-        raise HTTPException(status_code=502, detail="DeepSeek 返回内容过短，请稍后重试或换用文字更多的资料。")
+        raise HTTPException(status_code=502, detail="文本模型返回内容过短，请稍后重试或换用文字更多的资料。")
 
     return content
 
@@ -1818,7 +2059,7 @@ def call_vision_agent_for_ddl(content: bytes, filename: str, course_name: str):
     if not VISION_API_URL or not VISION_API_KEY or not VISION_MODEL:
         raise HTTPException(
             status_code=503,
-            detail="未配置视觉模型智能体。请设置 NOTEWHALE_VISION_API_URL / NOTEWHALE_VISION_API_KEY / NOTEWHALE_VISION_MODEL。",
+            detail="未配置视觉模型智能体。请在 backend/.env 或系统环境变量中设置 NOTEWHALE_VISION_API_URL / NOTEWHALE_VISION_API_KEY / NOTEWHALE_VISION_MODEL。",
         )
 
     if not content:

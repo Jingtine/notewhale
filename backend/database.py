@@ -1,11 +1,20 @@
 import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+
 DEFAULT_SQLITE_URL = "sqlite:///./notewhale.db"
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_SQLITE_URL).strip()
+SQLALCHEMY_DATABASE_URL = (os.getenv("DATABASE_URL") or DEFAULT_SQLITE_URL).strip()
 
 # Some deployment platforms provide PostgreSQL URLs starting with "postgres://".
 # SQLAlchemy expects "postgresql://".

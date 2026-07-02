@@ -19,6 +19,7 @@ frontend/dist/
 
 # Temp
 *.log
+tmp/
 
 # Local secrets / startup scripts
 backend/start_backend.ps1
