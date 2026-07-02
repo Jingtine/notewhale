@@ -980,7 +980,7 @@ function CoursePage({ user = null, onLogout } = {}) {
             style={{
               borderTop: `1px solid ${colors.border}`,
               display: "grid",
-              gridTemplateColumns: activeTab === "ddl" ? "260px 1fr" : "1fr",
+              gridTemplateColumns: activeTab === "ddl" ? "220px 1fr" : "1fr",
               minHeight: "460px",
             }}
           >
@@ -988,7 +988,7 @@ function CoursePage({ user = null, onLogout } = {}) {
               <aside
                 style={{
                   borderRight: `1px solid ${colors.border}`,
-                  padding: "28px 20px",
+                  padding: "22px 16px",
                   background: darkMode
                     ? "rgba(15,23,42,0.38)"
                     : "rgba(248,250,252,0.72)",
@@ -1015,7 +1015,7 @@ function CoursePage({ user = null, onLogout } = {}) {
               </aside>
             )}
 
-            <section style={{ padding: "26px 36px" }}>
+            <section style={{ padding: "22px 28px" }}>
               {activeTab === "ddl" && (
                 <DDLTab
                   course={course}
@@ -1761,32 +1761,165 @@ function courseMenuItemStyle(theme) {
 }
 
 function CourseHeader({
+  course,
   colors,
   activeTab,
   setActiveTab,
   onOpenSchedule,
   onAddNote,
   uploadResources,
+  activeDdls = [],
+  courseNotes = [],
+  courseResources = [],
 }) {
   const headerResourceInputRef = useRef(null);
+  const pendingCount = activeDdls.length;
+  const syncLabel = course?.backendSynced ? "云端同步" : "本地课程";
+  const nextAction =
+    activeTab === "notes"
+      ? "新建笔记"
+      : activeTab === "ddl"
+        ? "新建日程"
+        : "上传资料";
+
+  function runPrimaryAction() {
+    if (activeTab === "notes") {
+      onAddNote();
+      return;
+    }
+    if (activeTab === "ddl") {
+      onOpenSchedule();
+      return;
+    }
+    headerResourceInputRef.current?.click();
+  }
 
   return (
-    <div style={{ padding: "0 36px" }}>
+    <div style={{ padding: "24px 28px 18px" }}>
       <div
         style={{
-          minHeight: "62px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          alignItems: "start",
           gap: "22px",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                height: "26px",
+                padding: "0 10px",
+                borderRadius: "999px",
+                background: colors.soft,
+                border: `1px solid ${colors.border}`,
+                color: colors.active,
+                fontSize: "12px",
+                fontWeight: 800,
+              }}
+            >
+              {syncLabel}
+            </span>
+            {pendingCount > 0 && (
+              <span
+                style={{
+                  color: colors.danger,
+                  fontSize: "13px",
+                  fontWeight: 800,
+                }}
+              >
+                {pendingCount} 个 DDL 待处理
+              </span>
+            )}
+          </div>
+
+          <h1
+            style={{
+              margin: "12px 0 0",
+              color: colors.title,
+              fontSize: "30px",
+              lineHeight: 1.15,
+              fontWeight: 900,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {course?.title || "课程空间"}
+          </h1>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(108px, 148px))",
+              gap: "10px",
+              marginTop: "18px",
+            }}
+          >
+            <CourseMetric label="资料" value={courseResources.length} colors={colors} />
+            <CourseMetric label="笔记" value={courseNotes.length} colors={colors} />
+            <CourseMetric label="待办" value={pendingCount} colors={colors} />
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "10px",
+            flexWrap: "wrap",
+            maxWidth: "360px",
+          }}
+        >
+          <button type="button" onClick={runPrimaryAction} style={primaryButton(colors)}>
+            ＋ {nextAction}
+          </button>
+          {activeTab !== "resources" && (
+            <button
+              type="button"
+              onClick={() => headerResourceInputRef.current?.click()}
+              style={secondaryButton(colors)}
+            >
+              上传资料
+            </button>
+          )}
+          {activeTab !== "notes" && (
+            <button type="button" onClick={onAddNote} style={secondaryButton(colors)}>
+              新建笔记
+            </button>
+          )}
+          <input
+            ref={headerResourceInputRef}
+            type="file"
+            multiple
+            onChange={uploadResources}
+            style={{ display: "none" }}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: "22px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "16px",
+          borderTop: `1px solid ${colors.border}`,
+          paddingTop: "16px",
         }}
       >
         <nav
           style={{
-            display: "flex",
-            gap: "56px",
-            height: "62px",
-            alignItems: "center",
+            display: "inline-grid",
+            gridTemplateColumns: "repeat(4, minmax(72px, 1fr))",
+            gap: "4px",
+            padding: "4px",
+            border: `1px solid ${colors.border}`,
+            borderRadius: "14px",
+            background: colors.soft,
           }}
         >
           <TopTab
@@ -1814,40 +1947,28 @@ function CourseHeader({
             colors={colors}
           />
         </nav>
-
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          {activeTab === "resources" && (
-            <>
-              <button
-                type="button"
-                onClick={() => headerResourceInputRef.current?.click()}
-                style={primaryButton(colors)}
-              >
-                上传资料
-              </button>
-              <input
-                ref={headerResourceInputRef}
-                type="file"
-                multiple
-                onChange={uploadResources}
-                style={{ display: "none" }}
-              />
-            </>
-          )}
-
-          {activeTab === "notes" && (
-            <button onClick={onAddNote} style={primaryButton(colors)}>
-              ＋ 新建笔记
-            </button>
-          )}
-
-          {activeTab === "ddl" && (
-            <button onClick={onOpenSchedule} style={primaryButton(colors)}>
-              ＋ 新建日程
-            </button>
-          )}
-        </div>
       </div>
+    </div>
+  );
+}
+
+function CourseMetric({ label, value, colors }) {
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        border: `1px solid ${colors.border}`,
+        background: colors.card,
+        borderRadius: "14px",
+        padding: "10px 12px",
+      }}
+    >
+      <span style={{ display: "block", color: colors.text, fontSize: "12px", fontWeight: 800 }}>
+        {label}
+      </span>
+      <strong style={{ display: "block", color: colors.title, fontSize: "20px", marginTop: "3px" }}>
+        {value}
+      </strong>
     </div>
   );
 }
@@ -1857,17 +1978,17 @@ function TopTab({ label, active, onClick, colors }) {
     <button
       onClick={onClick}
       style={{
-        height: "52px",
+        height: "36px",
         border: "none",
-        background: "transparent",
+        borderRadius: "10px",
+        background: active ? colors.card : "transparent",
         color: active ? colors.active : colors.text,
-        fontSize: "17px",
-        fontWeight: 700,
+        fontSize: "14px",
+        fontWeight: 800,
         cursor: "pointer",
-        borderBottom: active
-          ? `4px solid ${colors.active}`
-          : "4px solid transparent",
-        padding: "0 4px",
+        padding: "0 14px",
+        boxShadow: active ? "0 8px 18px rgba(15,42,74,0.08)" : "none",
+        fontFamily: "inherit",
       }}
     >
       {label}
@@ -1933,9 +2054,6 @@ function ResourceTab({
       <div style={panelHeaderStyle}>
         <div>
           <h2 style={{ ...sectionTitleStyle(colors), margin: 0 }}>课程资料</h2>
-          <p style={{ margin: "8px 0 0", color: colors.text, fontSize: "13px" }}>
-            以课程为单位沉淀课件、讲义、教材与录音。
-          </p>
         </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
@@ -2099,9 +2217,6 @@ function NoteTab({ notes, colors, searchText = "", onOpen, onAdd, onDelete }) {
       <div style={panelHeaderStyle}>
         <div>
           <h2 style={{ ...sectionTitleStyle(colors), margin: 0 }}>课程笔记</h2>
-          <p style={{ margin: "8px 0 0", color: colors.text, fontSize: "13px" }}>
-            只展示笔记索引，点击进入后再查看、编辑或导出。
-          </p>
         </div>
 
         <button onClick={onAdd} style={secondaryButton(colors)}>
@@ -3022,9 +3137,9 @@ function contentCardStyle(colors) {
   return {
     background: colors.card,
     border: `1px solid ${colors.border}`,
-    borderRadius: "20px",
-    padding: "28px 34px",
-    minHeight: "340px",
+    borderRadius: "18px",
+    padding: "22px 26px",
+    minHeight: "300px",
   };
 }
 
@@ -3042,7 +3157,7 @@ function compactRowStyle(colors) {
 }
 
 function sectionTitleStyle(colors) {
-  return { margin: "0 0 22px", color: colors.title, fontSize: "24px", fontWeight: 700 };
+  return { margin: "0 0 18px", color: colors.title, fontSize: "22px", fontWeight: 800 };
 }
 
 function fileBadgeStyle(colors) {
