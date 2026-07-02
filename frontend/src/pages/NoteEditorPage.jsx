@@ -147,6 +147,9 @@ function NoteEditorPage() {
   const colors = getColors(darkMode);
   const headings = useMemo(() => extractHeadings(content), [content]);
   const wordCount = plainText(content).length;
+  const lineCount = content.split("\n").length;
+  const storageLabel = note?.backendSynced ? "数据库" : "本地";
+  const modeLabel = getEditorModeLabel(editorMode);
 
   const saveNote = useCallback(async (silent = false) => {
     if (!note || !title.trim()) return;
@@ -355,66 +358,78 @@ function NoteEditorPage() {
 
           <section style={editorShellStyle(colors)}>
             <header style={topbarStyle(colors)}>
-              <div style={toolbarLeftStyle}>
-                <SegmentButton
-                  active={editorMode === "document"}
-                  colors={colors}
-                  onClick={() => setEditorMode("document")}
-                >
-                  文档
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "markdown"}
-                  colors={colors}
-                  onClick={() => setEditorMode("markdown")}
-                >
-                  Markdown
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "split"}
-                  colors={colors}
-                  onClick={() => setEditorMode("split")}
-                >
-                  分屏
-                </SegmentButton>
-                <SegmentButton
-                  active={editorMode === "preview"}
-                  colors={colors}
-                  onClick={() => setEditorMode("preview")}
-                >
-                  预览
-                </SegmentButton>
+              <div style={toolbarPrimaryRowStyle}>
+                <div style={editorStatusClusterStyle(colors)}>
+                  <strong style={{ color: colors.title, fontSize: 14 }}>{modeLabel}</strong>
+                  <span>{wordCount} 字</span>
+                  <span>{headings.length} 个标题</span>
+                  <span>{lineCount} 行</span>
+                  <span>{storageLabel}</span>
+                </div>
 
-                <Divider colors={colors} />
-
-                <ToolButton colors={colors} onClick={() => wrapText("**", "**", "加粗文字")}>B</ToolButton>
-                <ToolButton colors={colors} onClick={() => wrapText("*", "*", "斜体文字")}>I</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n## 新章节\n")}>H2</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n- 列表项\n")}>列表</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText("\n> 引用内容\n")}>引用</ToolButton>
-                <ToolButton colors={colors} onClick={() => wrapText("[", "](https://)", "链接文字")}>链接</ToolButton>
-                <ToolButton colors={colors} onClick={() => setImageModalOpen(true)}>图片</ToolButton>
-                <ToolButton colors={colors} onClick={() => insertText(" x² + y² = z² ")}>公式</ToolButton>
-
-                <div style={{ position: "relative" }}>
-                  <ToolButton colors={colors} onClick={() => setSymbolPanelOpen((value) => !value)}>符号</ToolButton>
-                  {symbolPanelOpen && (
-                    <SymbolPanel
-                      colors={colors}
-                      onInsert={(symbol) => {
-                        insertText(symbol);
-                        setSymbolPanelOpen(false);
-                      }}
-                    />
-                  )}
+                <div style={toolbarRightStyle}>
+                  <span style={saveTipStyle(colors)}>{savedTip}</span>
+                  <button onClick={exportMarkdown} style={secondaryButton(colors)}>导出 MD</button>
+                  <button onClick={exportPdf} style={secondaryButton(colors)}>导出 PDF</button>
+                  <button onClick={() => saveNote(false)} style={primaryButton(colors)}>保存</button>
                 </div>
               </div>
 
-              <div style={toolbarRightStyle}>
-                <span style={saveTipStyle(colors)}>{savedTip}</span>
-                <button onClick={exportMarkdown} style={secondaryButton(colors)}>导出 MD</button>
-                <button onClick={exportPdf} style={secondaryButton(colors)}>导出 PDF</button>
-                <button onClick={() => saveNote(false)} style={primaryButton(colors)}>保存</button>
+              <div style={toolbarSecondaryRowStyle}>
+                <div style={modeSwitchStyle(colors)}>
+                  <SegmentButton
+                    active={editorMode === "document"}
+                    colors={colors}
+                    onClick={() => setEditorMode("document")}
+                  >
+                    文档
+                  </SegmentButton>
+                  <SegmentButton
+                    active={editorMode === "markdown"}
+                    colors={colors}
+                    onClick={() => setEditorMode("markdown")}
+                  >
+                    Markdown
+                  </SegmentButton>
+                  <SegmentButton
+                    active={editorMode === "split"}
+                    colors={colors}
+                    onClick={() => setEditorMode("split")}
+                  >
+                    分屏
+                  </SegmentButton>
+                  <SegmentButton
+                    active={editorMode === "preview"}
+                    colors={colors}
+                    onClick={() => setEditorMode("preview")}
+                  >
+                    预览
+                  </SegmentButton>
+                </div>
+
+                <div style={formatToolbarStyle}>
+                  <ToolButton colors={colors} onClick={() => wrapText("**", "**", "加粗文字")}>B</ToolButton>
+                  <ToolButton colors={colors} onClick={() => wrapText("*", "*", "斜体文字")}>I</ToolButton>
+                  <ToolButton colors={colors} onClick={() => insertText("\n## 新章节\n")}>H2</ToolButton>
+                  <ToolButton colors={colors} onClick={() => insertText("\n- 列表项\n")}>列表</ToolButton>
+                  <ToolButton colors={colors} onClick={() => insertText("\n> 引用内容\n")}>引用</ToolButton>
+                  <ToolButton colors={colors} onClick={() => wrapText("[", "](https://)", "链接文字")}>链接</ToolButton>
+                  <ToolButton colors={colors} onClick={() => setImageModalOpen(true)}>图片</ToolButton>
+                  <ToolButton colors={colors} onClick={() => insertText(" x^2 + y^2 = z^2 ")}>公式</ToolButton>
+
+                  <div style={{ position: "relative" }}>
+                    <ToolButton colors={colors} onClick={() => setSymbolPanelOpen((value) => !value)}>符号</ToolButton>
+                    {symbolPanelOpen && (
+                      <SymbolPanel
+                        colors={colors}
+                        onInsert={(symbol) => {
+                          insertText(symbol);
+                          setSymbolPanelOpen(false);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
             </header>
 
@@ -446,9 +461,9 @@ function NoteEditorPage() {
             </div>
 
             <footer style={statusBarStyle(colors)}>
-              <span>{wordCount} 字</span>
-              <span>自动保存开启</span>
-              <span>文档 / Markdown / LaTeX / 特殊运算符</span>
+              <span>{title.trim() || "未命名笔记"}</span>
+              <span>{savedTip}</span>
+              <span>{new Date(note.updatedAt || note.createdAt).toLocaleDateString()}</span>
             </footer>
           </section>
         </section>
@@ -917,6 +932,13 @@ function extractHeadings(markdown = "") {
       };
     })
     .filter(Boolean);
+}
+
+function getEditorModeLabel(mode) {
+  if (mode === "markdown") return "Markdown 编辑";
+  if (mode === "split") return "分屏校对";
+  if (mode === "preview") return "预览";
+  return "文档编辑";
 }
 
 function convertLatexText(text = "") {
@@ -1410,7 +1432,7 @@ function editorShellStyle(colors) {
     minWidth: 0,
     overflow: "hidden",
     display: "grid",
-    gridTemplateRows: "64px minmax(0,1fr) 44px",
+    gridTemplateRows: "104px minmax(0,1fr) 38px",
     background: colors.card,
   };
 }
@@ -1418,25 +1440,69 @@ function editorShellStyle(colors) {
 function topbarStyle(colors) {
   return {
     borderBottom: `1px solid ${colors.border}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
+    display: "grid",
+    gridTemplateRows: "48px 56px",
+    gap: 0,
     padding: "0 18px",
-    overflowX: "auto",
+    overflow: "hidden",
   };
 }
 
-const toolbarLeftStyle = {
+const toolbarPrimaryRowStyle = {
   display: "flex",
-  gap: 8,
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  minWidth: 0,
+  borderBottom: "1px solid transparent",
+};
+
+function editorStatusClusterStyle(colors) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  };
+}
+
+const toolbarSecondaryRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 14,
+  minWidth: 0,
+  overflowX: "auto",
+};
+
+function modeSwitchStyle(colors) {
+  return {
+    display: "inline-grid",
+    gridTemplateColumns: "repeat(4, auto)",
+    gap: 4,
+    padding: 4,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 12,
+    background: colors.soft,
+    flexShrink: 0,
+  };
+}
+
+const formatToolbarStyle = {
+  display: "flex",
+  gap: 6,
   alignItems: "center",
   flexWrap: "nowrap",
+  minWidth: 0,
 };
 
 const toolbarRightStyle = {
   display: "flex",
-  gap: 10,
+  gap: 8,
   alignItems: "center",
   flexShrink: 0,
 };
