@@ -1,5 +1,5 @@
 import logo from "../assets/logo_main.png";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 function Sidebar({
   folders,
@@ -11,6 +11,7 @@ function Sidebar({
   onOpenSettings,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const menuItems = [
     { key: "全部", label: "首页", icon: "⌂" },
     { key: "全部课程", label: "全部课程", icon: "▤" },
@@ -132,10 +133,11 @@ function Sidebar({
 
       <div>
         {menuItems.map((item) => {
-          const active = selectedFolder === item.key;
+          const active = item.path ? location.pathname === item.path : selectedFolder === item.key;
 
           return (
-            <div
+            <button
+              type="button"
               key={item.key}
               onClick={() => {
                 if (item.path) {
@@ -152,11 +154,15 @@ function Sidebar({
                 height: "40px",
                 padding: "0 12px",
                 borderRadius: "10px",
+                border: "none",
                 cursor: "pointer",
                 marginBottom: "6px",
                 background: active ? colors.activeBg : "transparent",
                 color: active ? colors.activeText : colors.subText,
                 transition: "0.2s",
+                width: "100%",
+                fontFamily: "inherit",
+                textAlign: "left",
               }}
             >
               <span
@@ -184,7 +190,7 @@ function Sidebar({
               >
                 {item.label}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
