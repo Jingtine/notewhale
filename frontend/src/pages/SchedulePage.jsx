@@ -67,6 +67,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [scheduleImportMessage, setScheduleImportMessage] = useState(
     "不保存账号密码；桌面版可在认证后自动读取，网页版可粘贴或导入课表内容。"
   );
+  const [studyBlockDraft, setStudyBlockDraft] = useState(null);
+  const [studyPlanMessage, setStudyPlanMessage] = useState("生成后可选中复习块手动微调。");
   const [selectedFolder, setSelectedFolder] = useState("学习日程");
   const [searchText, setSearchText] = useState("");
 
@@ -234,6 +236,9 @@ function SchedulePage({ user = null, onLogout } = {}) {
 
   function deleteStudyPlanBlock(blockId) {
     setStudyPlanBlocks((prev) => prev.filter((item) => item.id !== blockId));
+    if (studyBlockDraft?.id === blockId) {
+      setStudyBlockDraft(null);
+    }
   }
 
   function generateWeeklyStudyPlan() {
@@ -249,12 +254,60 @@ function SchedulePage({ user = null, onLogout } = {}) {
       ...prev.filter((item) => !isWithinWeek(parseScheduleDate(item.date), currentWeek)),
       ...generatedBlocks,
     ]);
+    setStudyBlockDraft(generatedBlocks[0] ? createStudyBlockDraft(generatedBlocks[0]) : null);
+    setStudyPlanMessage(
+      generatedBlocks.length > 0
+        ? `已生成 ${generatedBlocks.length} 个复习块，可以继续微调。`
+        : "没有找到可安排的本周 DDL 或空余时间。"
+    );
   }
 
   function clearWeeklyStudyPlan() {
     setStudyPlanBlocks((prev) =>
       prev.filter((item) => !isWithinWeek(parseScheduleDate(item.date), currentWeek))
     );
+    setStudyBlockDraft(null);
+    setStudyPlanMessage("已清空本周复习规划。");
+  }
+
+  function selectStudyPlanBlock(block) {
+    setStudyBlockDraft(createStudyBlockDraft(block));
+    setStudyPlanMessage(`正在调整：${block.title}`);
+  }
+
+  function updateStudyBlockDraft(changes) {
+    setStudyBlockDraft((prev) => (prev ? { ...prev, ...changes } : prev));
+  }
+
+  function saveStudyBlockDraft(event) {
+    event.preventDefault();
+    if (!studyBlockDraft) return;
+
+    if (timeToMinutes(studyBlockDraft.endTime) <= timeToMinutes(studyBlockDraft.startTime)) {
+      setStudyPlanMessage("结束时间需要晚于开始时间。");
+      return;
+    }
+
+    const day = Number(studyBlockDraft.day);
+    const nextDate = formatDateInput(addDays(currentWeek, day - 1));
+    setStudyPlanBlocks((prev) =>
+      prev.map((item) =>
+        item.id === studyBlockDraft.id
+          ? {
+              ...item,
+              title: studyBlockDraft.title.trim() || item.title,
+              day,
+              date: nextDate,
+              startTime: studyBlockDraft.startTime,
+              endTime: studyBlockDraft.endTime,
+              source: "手动调整复习规划",
+              manuallyAdjusted: true,
+            }
+          : item
+      )
+    );
+    setStudyBlockDraft((prev) => (prev ? { ...prev, day, date: nextDate } : prev));
+    setStudyPlanMessage("调整已保存。");
   }
 
   function openNjuTeachingPortal(url = NJU_TEACHING_PORTAL_URL, direct = false) {
@@ -495,6 +548,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                         item={item}
                         colors={colors}
                         type="study"
+                        onSelect={() => selectStudyPlanBlock(item)}
                         onDelete={() => deleteStudyPlanBlock(item.id)}
                       />
                     ))}
@@ -718,15 +772,79 @@ function SchedulePage({ user = null, onLogout } = {}) {
             ) : (
               <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
                 {weekStudyPlanBlocks.slice(0, 5).map((item) => (
-                  <div key={item.id} style={ddlMiniCardStyle(colors)}>
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => selectStudyPlanBlock(item)}
+                    style={selectableMiniCardStyle(colors, studyBlockDraft?.id === item.id)}
+                  >
                     <strong style={{ color: colors.title, fontSize: "13px" }}>{item.title}</strong>
                     <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
                       {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime} · {item.courseName}
                     </span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
+            {studyBlockDraft && (
+              <form onSubmit={saveStudyBlockDraft} style={studyEditFormStyle(colors)}>
+                <label style={fieldStyle(colors)}>
+                  <span>复习块标题</span>
+                  <input
+                    value={studyBlockDraft.title}
+                    onChange={(event) => updateStudyBlockDraft({ title: event.target.value })}
+                    style={inputStyle(colors)}
+                  />
+                </label>
+                <label style={fieldStyle(colors)}>
+                  <span>星期</span>
+                  <select
+                    value={studyBlockDraft.day}
+                    onChange={(event) => updateStudyBlockDraft({ day: event.target.value })}
+                    style={inputStyle(colors)}
+                  >
+                    {WEEKDAYS.map((label, index) => (
+                      <option key={label} value={index + 1}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <label style={fieldStyle(colors)}>
+                    <span>开始</span>
+                    <input
+                      type="time"
+                      value={studyBlockDraft.startTime}
+                      onChange={(event) => updateStudyBlockDraft({ startTime: event.target.value })}
+                      style={inputStyle(colors)}
+                    />
+                  </label>
+                  <label style={fieldStyle(colors)}>
+                    <span>结束</span>
+                    <input
+                      type="time"
+                      value={studyBlockDraft.endTime}
+                      onChange={(event) => updateStudyBlockDraft({ endTime: event.target.value })}
+                      style={inputStyle(colors)}
+                    />
+                  </label>
+                </div>
+                <div style={importActionRowStyle}>
+                  <button type="submit" style={primaryButtonStyle(colors)}>
+                    保存调整
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteStudyPlanBlock(studyBlockDraft.id)}
+                    style={outlineButtonStyle(colors)}
+                  >
+                    删除
+                  </button>
+                </div>
+              </form>
+            )}
+            <p style={importMessageStyle(colors)}>{studyPlanMessage}</p>
           </section>
 
           <section style={panelCardStyle(colors)}>
@@ -754,7 +872,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   );
 }
 
-function ScheduleBlock({ item, colors, type, onDelete }) {
+function ScheduleBlock({ item, colors, type, onDelete, onSelect }) {
   const start = clampStartMinutes(timeToMinutes(item.startTime));
   const end = clampMinutes(timeToMinutes(item.endTime));
   const top = ((start - START_HOUR * 60) / 60) * HOUR_HEIGHT;
@@ -771,6 +889,16 @@ function ScheduleBlock({ item, colors, type, onDelete }) {
 
   return (
     <div
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (!onSelect) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       style={{
         position: "absolute",
         left: "6px",
@@ -784,13 +912,21 @@ function ScheduleBlock({ item, colors, type, onDelete }) {
         border: `1px solid ${blockBorder}`,
         color: blockText,
         overflow: "hidden",
+        cursor: onSelect ? "pointer" : "default",
         zIndex: isDdl ? 4 : isStudy ? 3 : 2,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
         <strong style={{ fontSize: "13px", lineHeight: 1.25 }}>{item.title}</strong>
         {onDelete && (
-          <button type="button" onClick={onDelete} style={blockDeleteStyle(colors)}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            style={blockDeleteStyle(colors)}
+          >
             ×
           </button>
         )}
@@ -982,6 +1118,17 @@ function formatWeeks(weeks) {
   if (!Array.isArray(weeks) || weeks.length === 0) return "";
 
   return `${weeks.join(",")}周`;
+}
+
+function createStudyBlockDraft(block) {
+  return {
+    id: block.id,
+    title: block.title || "",
+    day: String(block.day || 1),
+    date: block.date || "",
+    startTime: block.startTime || "08:00",
+    endTime: block.endTime || "09:00",
+  };
 }
 
 function hasNjuScheduleBridge() {
@@ -1319,6 +1466,27 @@ function ddlMiniCardStyle(colors) {
     border: `1px solid ${colors.border}`,
     borderRadius: "12px",
     padding: "11px",
+  };
+}
+
+function selectableMiniCardStyle(colors, active) {
+  return {
+    ...ddlMiniCardStyle(colors),
+    textAlign: "left",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    border: `1px solid ${active ? colors.studyBorder : colors.border}`,
+    boxShadow: active ? "0 0 0 3px rgba(16,185,129,0.12)" : "none",
+  };
+}
+
+function studyEditFormStyle(colors) {
+  return {
+    display: "grid",
+    gap: "12px",
+    marginTop: "14px",
+    paddingTop: "14px",
+    borderTop: `1px solid ${colors.border}`,
   };
 }
 
