@@ -145,6 +145,11 @@ function Sidebar({
                   return;
                 }
 
+                if (location.pathname !== "/") {
+                  navigate("/");
+                  return;
+                }
+
                 setSelectedFolder(item.key);
               }}
               style={{

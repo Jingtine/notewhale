@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import Header from "../components/Header";
+import Sidebar from "../components/Sidebar";
 import { getDdls as getBackendDdls } from "../api/ddlApi";
 import { getFolders as getBackendFolders } from "../api/folderApi";
 import { mapBackendFolder } from "../data/courseFolderStore";
@@ -38,6 +40,8 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [classEnd, setClassEnd] = useState("09:40");
   const [classLocation, setClassLocation] = useState("");
   const [classCourseId, setClassCourseId] = useState("");
+  const [selectedFolder, setSelectedFolder] = useState("学习日程");
+  const [searchText, setSearchText] = useState("");
 
   const colors = buildColors(darkMode);
   const weekDays = useMemo(() => buildWeekDays(currentWeek), [currentWeek]);
@@ -169,32 +173,63 @@ function SchedulePage({ user = null, onLogout } = {}) {
     return sum + duration / 60;
   }, 0);
   const currentUser = user || { name: "鲸记用户", account: "本地体验账号" };
+  const scheduleSearchItems = useMemo(
+    () =>
+      ddls.map((ddl) => ({
+        key: `ddl-${ddl.id}`,
+        type: "ddl",
+        typeLabel: "DDL",
+        title: ddl.title || "未命名 DDL",
+        subtitle: `${ddl.courseName || "未归属课程"} · ${ddl.date || "未设置时间"}`,
+        content: `${ddl.title || ""} ${ddl.courseName || ""} ${ddl.date || ""} ${ddl.platform || ""} ${ddl.note || ""}`,
+        path: "/ddl",
+      })),
+    [ddls]
+  );
 
   return (
-    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.title }}>
-      <header style={topbarStyle(colors)}>
-        <div>
-          <button type="button" onClick={() => navigate("/")} style={ghostButtonStyle(colors)}>
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: colors.bg, color: colors.title }}>
+      <Sidebar
+        folders={folders}
+        selectedFolder={selectedFolder}
+        setSelectedFolder={setSelectedFolder}
+        setShowFolderModal={() => navigate("/")}
+        setShowCourseModal={() => navigate("/")}
+        darkMode={darkMode}
+        onOpenSettings={() => navigate("/", { state: { openSettingsSection: "account" } })}
+      />
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <Header
+          searchText={searchText}
+          setSearchText={setSearchText}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          upcomingDdls={ddls}
+          user={currentUser}
+          onLogout={onLogout}
+          onOpenDataStatus={(section = "account") =>
+            navigate("/", { state: { openSettingsSection: section } })
+          }
+          searchItems={scheduleSearchItems}
+        />
+
+      <main style={scheduleContentStyle(colors)}>
+        <section style={scheduleHeroStyle(colors)}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: 0 }}>
+              学习日程
+            </h1>
+            <p style={{ margin: "8px 0 0", color: colors.text, fontSize: "14px", lineHeight: 1.7 }}>
+              固定课表锁定上课时间，DDL 和复习规划会围绕空余时间安排。
+            </p>
+          </div>
+          <button type="button" onClick={() => navigate("/")} style={outlineButtonStyle(colors)}>
             返回主页
           </button>
-          <h1 style={{ margin: "14px 0 6px", fontSize: "30px", letterSpacing: 0 }}>
-            学习日程
-          </h1>
-          <p style={{ margin: 0, color: colors.text, fontSize: "14px" }}>
-            固定课表锁定上课时间，DDL 和复习规划会围绕空余时间安排。
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <button type="button" onClick={() => setDarkMode(!darkMode)} style={iconButtonStyle(colors)}>
-            {darkMode ? "日间" : "夜间"}
-          </button>
-          <button type="button" onClick={onLogout} style={outlineButtonStyle(colors)}>
-            退出登录
-          </button>
-        </div>
-      </header>
+        </section>
 
-      <main style={pageGridStyle}>
+        <div style={pageGridStyle}>
         <section style={calendarShellStyle(colors)}>
           <div style={calendarHeaderStyle}>
             <div>
@@ -384,7 +419,9 @@ function SchedulePage({ user = null, onLogout } = {}) {
             )}
           </section>
         </aside>
+        </div>
       </main>
+      </div>
     </div>
   );
 }
@@ -578,15 +615,25 @@ const calendarScrollStyle = {
   paddingBottom: "4px",
 };
 
-function topbarStyle(colors) {
+function scheduleContentStyle(colors) {
+  return {
+    flex: 1,
+    overflowY: "auto",
+    padding: "30px 32px 36px",
+    boxSizing: "border-box",
+    background: colors.bg,
+  };
+}
+
+function scheduleHeroStyle(colors) {
   return {
     display: "flex",
     justifyContent: "space-between",
-    gap: "20px",
-    alignItems: "center",
-    padding: "28px",
-    marginBottom: "2px",
-    background: colors.bg,
+    alignItems: "flex-start",
+    gap: "18px",
+    borderBottom: `1px solid ${colors.border}`,
+    paddingBottom: "18px",
+    marginBottom: "22px",
   };
 }
 
@@ -764,25 +811,6 @@ function outlineButtonStyle(colors) {
     fontWeight: 800,
     fontFamily: "inherit",
     padding: "0 14px",
-  };
-}
-
-function ghostButtonStyle(colors) {
-  return {
-    border: "none",
-    background: "transparent",
-    color: colors.active,
-    cursor: "pointer",
-    padding: 0,
-    fontWeight: 900,
-    fontFamily: "inherit",
-  };
-}
-
-function iconButtonStyle(colors) {
-  return {
-    ...outlineButtonStyle(colors),
-    minWidth: "64px",
   };
 }
 

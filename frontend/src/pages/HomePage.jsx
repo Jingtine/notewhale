@@ -5,7 +5,7 @@ import Footer from "../components/Footer";
 import DDLPanel from "../components/DDLPanel";
 import FolderSection from "../components/FolderSection";
 import GlobalSettingsModal from "../components/GlobalSettingsModal";
-import {useNavigate} from "react-router-dom";
+import {useLocation, useNavigate} from "react-router-dom";
 import {
   createCourse as createBackendCourse,
   updateCourse as updateBackendCourse,
@@ -93,6 +93,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [newDDLPreview, setNewDDLPreview] = useState("");
 
   const navigate =useNavigate();
+  const location = useLocation();
 
   const [showDataStatus, setShowDataStatus] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState("account");
@@ -108,6 +109,20 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [aiModelSettings, setAiModelSettingsState] = useState(() =>
     readAiModelSettings()
   );
+
+  useEffect(() => {
+    const section = location.state?.openSettingsSection;
+
+    if (!section) return;
+
+    const timer = window.setTimeout(() => {
+      setSettingsInitialSection(section);
+      setShowDataStatus(true);
+      navigate("/", { replace: true, state: {} });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [location.state, navigate]);
 
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renamingCourse, setRenamingCourse] = useState(null);
