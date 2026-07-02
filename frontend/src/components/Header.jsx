@@ -120,9 +120,9 @@ function Header({
     onLogout?.();
   }
 
-  function handleOpenDataStatus() {
+  function handleOpenDataStatus(section = "account") {
     setShowUserMenu(false);
-    onOpenDataStatus?.();
+    onOpenDataStatus?.(section);
   }
 
   function openSearchResult(item) {
@@ -382,100 +382,53 @@ function Header({
 
       {showUserMenu && (
         <div
-          style={{
-            position: "absolute",
-            top: "66px",
-            right: "26px",
-            width: "260px",
-            background: theme.panel,
-            border: theme.strongBorder,
-            borderRadius: "16px",
-            padding: "12px",
-            boxShadow: darkMode
-              ? "0 18px 36px rgba(0,0,0,0.28)"
-              : "0 18px 36px rgba(15,42,74,0.12)",
-            zIndex: 999,
-          }}
+          style={userMenuStyle(theme, darkMode)}
         >
-          <div
-            style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "center",
-              padding: "8px 8px 14px",
-              borderBottom: theme.strongBorder,
-              marginBottom: "8px",
-            }}
-          >
-            <div
-              style={{
-                width: "42px",
-                height: "42px",
-                borderRadius: "50%",
-                background: "linear-gradient(135deg,#6366F1,#2563EB)",
-                color: "white",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 800,
-              }}
-            >
+          <div style={userMenuAccountStyle(theme)}>
+            <div style={userMenuAvatarStyle}>
               {avatarText}
             </div>
             <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  color: theme.text,
-                  fontSize: "15px",
-                  fontWeight: 800,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <div style={userMenuNameStyle(theme)}>
                 {displayName}
               </div>
-              <div
-                style={{
-                  color: theme.subText,
-                  fontSize: "12px",
-                  marginTop: "4px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <div style={userMenuAccountTextStyle(theme)}>
                 {role} · {account}
+              </div>
+              <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "10px" }}>
+                <span style={miniStatusStyle(theme, "success")}>已登录</span>
+                <span style={miniStatusStyle(theme, "default")}>
+                  {user?.authMode === "api" ? "云端同步" : "本地体验"}
+                </span>
               </div>
             </div>
           </div>
 
-          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
-            数据状态
-          </MenuItem>
-          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
-            同步与存储
-          </MenuItem>
-          <MenuItem theme={theme} onClick={handleOpenDataStatus}>
-            账号中心
-          </MenuItem>
+          <div style={menuSectionLabelStyle(theme)}>工作区</div>
+          <MenuItem
+            theme={theme}
+            title="数据状态"
+            detail="查看后端连接和当前数据规模"
+            onClick={() => handleOpenDataStatus("sync")}
+          />
+          <MenuItem
+            theme={theme}
+            title="同步与存储"
+            detail="课程、DDL、资料文件的保存状态"
+            onClick={() => handleOpenDataStatus("sync")}
+          />
+
+          <div style={menuSectionLabelStyle(theme)}>账号</div>
+          <MenuItem
+            theme={theme}
+            title="账号中心"
+            detail="资料、密码和当前登录会话"
+            onClick={() => handleOpenDataStatus("account")}
+          />
 
           <button
             onClick={handleLogoutClick}
-            style={{
-              width: "100%",
-              marginTop: "8px",
-              border: "none",
-              borderRadius: "10px",
-              padding: "11px 12px",
-              background: theme.dangerSoft,
-              color: "#DC2626",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: 700,
-              textAlign: "left",
-              fontFamily: "inherit",
-            }}
+            style={logoutMenuButtonStyle(theme)}
           >
             退出登录
           </button>
@@ -624,27 +577,143 @@ function SearchDropdown({ theme, darkMode, keyword, items, onOpen }) {
   );
 }
 
-function MenuItem({ theme, children, onClick, muted = false }) {
+function MenuItem({ theme, title, detail, children, onClick, muted = false }) {
   return (
     <button
       onClick={onClick}
       disabled={muted}
-      style={{
-        width: "100%",
-        border: "none",
-        background: "transparent",
-        color: muted ? theme.subText : theme.text,
-        borderRadius: "10px",
-        padding: "10px 12px",
-        cursor: muted ? "default" : "pointer",
-        fontSize: "14px",
-        textAlign: "left",
-        fontFamily: "inherit",
-      }}
+      style={menuItemStyle(theme, muted)}
     >
-      {children}
+      <span style={{ color: muted ? theme.subText : theme.text, fontSize: "14px", fontWeight: 800 }}>
+        {title || children}
+      </span>
+      {detail && (
+        <span style={{ color: theme.subText, fontSize: "12px", marginTop: "4px", lineHeight: 1.45 }}>
+          {detail}
+        </span>
+      )}
     </button>
   );
+}
+
+function userMenuStyle(theme, darkMode) {
+  return {
+    position: "absolute",
+    top: "66px",
+    right: "26px",
+    width: "318px",
+    background: theme.panel,
+    border: theme.strongBorder,
+    borderRadius: "18px",
+    padding: "12px",
+    boxShadow: darkMode
+      ? "0 18px 42px rgba(0,0,0,0.34)"
+      : "0 20px 48px rgba(15,42,74,0.16)",
+    zIndex: 999,
+  };
+}
+
+function userMenuAccountStyle(theme) {
+  return {
+    display: "flex",
+    gap: "12px",
+    alignItems: "center",
+    padding: "12px",
+    borderRadius: "14px",
+    background: theme.item,
+    border: theme.border,
+    marginBottom: "12px",
+    minWidth: 0,
+  };
+}
+
+const userMenuAvatarStyle = {
+  width: "46px",
+  height: "46px",
+  borderRadius: "14px",
+  background: "linear-gradient(135deg,#6366F1,#2563EB)",
+  color: "white",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 900,
+  fontSize: "17px",
+  flexShrink: 0,
+};
+
+function userMenuNameStyle(theme) {
+  return {
+    color: theme.text,
+    fontSize: "16px",
+    fontWeight: 900,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
+function userMenuAccountTextStyle(theme) {
+  return {
+    color: theme.subText,
+    fontSize: "12px",
+    marginTop: "4px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
+function miniStatusStyle(theme, tone) {
+  const color = tone === "success" ? "#10B981" : theme.accent;
+
+  return {
+    color,
+    background: tone === "success" ? "rgba(16,185,129,0.12)" : theme.soft,
+    borderRadius: "999px",
+    padding: "4px 8px",
+    fontSize: "11px",
+    fontWeight: 900,
+  };
+}
+
+function menuSectionLabelStyle(theme) {
+  return {
+    color: theme.subText,
+    fontSize: "11px",
+    fontWeight: 900,
+    padding: "4px 8px 6px",
+  };
+}
+
+function menuItemStyle(theme, muted) {
+  return {
+    display: "grid",
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    cursor: muted ? "default" : "pointer",
+    textAlign: "left",
+    fontFamily: "inherit",
+  };
+}
+
+function logoutMenuButtonStyle(theme) {
+  return {
+    width: "100%",
+    marginTop: "10px",
+    border: "none",
+    borderRadius: "12px",
+    padding: "12px",
+    background: theme.dangerSoft,
+    color: "#DC2626",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: 900,
+    textAlign: "left",
+    fontFamily: "inherit",
+  };
 }
 
 function iconButtonStyle(theme) {

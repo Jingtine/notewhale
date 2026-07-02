@@ -17,6 +17,7 @@ function GlobalSettingsModal({
   resourceCount,
   aiStatus,
   aiModelSettings,
+  initialSection = "account",
   onChangeAiModelSettings,
   onUserUpdated,
   onLogout,
@@ -37,7 +38,7 @@ function GlobalSettingsModal({
   const displayName = user?.name || "NoteWhale 用户";
   const accountText = user?.account || user?.email || "本地体验账号";
   const isOnline = Boolean(apiStatus.online);
-  const [activeSection, setActiveSection] = useState("account");
+  const [activeSection, setActiveSection] = useState(initialSection);
   const navItems = [
     {
       id: "account",

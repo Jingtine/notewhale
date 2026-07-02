@@ -95,6 +95,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const navigate =useNavigate();
 
   const [showDataStatus, setShowDataStatus] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState("account");
   const [apiStatus, setApiStatus] = useState({
     checking: true,
     online: false,
@@ -1176,7 +1177,10 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         setShowFolderModal={setShowFolderModal}
         setShowCourseModal={setShowCourseModal}
         darkMode={darkMode}
-        onOpenSettings={() => setShowDataStatus(true)}
+        onOpenSettings={() => {
+          setSettingsInitialSection("account");
+          setShowDataStatus(true);
+        }}
       />
 
       <div
@@ -1195,7 +1199,10 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           upcomingDdls={upcomingDdls}
           user={currentUser}
           onLogout={onLogout}
-          onOpenDataStatus={() => setShowDataStatus(true)}
+          onOpenDataStatus={(section = "account") => {
+            setSettingsInitialSection(section);
+            setShowDataStatus(true);
+          }}
           searchItems={globalSearchItems}
         />
 
@@ -1298,7 +1305,10 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                   </p>
 
                   <button
-                    onClick={() => setShowDataStatus(true)}
+                    onClick={() => {
+                      setSettingsInitialSection("sync");
+                      setShowDataStatus(true);
+                    }}
                     style={{
                       marginTop: "12px",
                       border: darkMode
@@ -1414,6 +1424,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           resourceCount={resourceCount}
           aiStatus={aiStatus}
           aiModelSettings={aiModelSettings}
+          initialSection={settingsInitialSection}
           onChangeAiModelSettings={saveAiModelSettings}
           onUserUpdated={onUserUpdated}
           onLogout={onLogout}
