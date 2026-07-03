@@ -1,15 +1,16 @@
 const PERIOD_TIMES = {
-  1: ["08:00", "08:45"],
-  2: ["08:55", "09:40"],
-  3: ["10:00", "10:45"],
-  4: ["10:55", "11:40"],
-  5: ["14:00", "14:45"],
-  6: ["14:55", "15:40"],
-  7: ["16:00", "16:45"],
-  8: ["16:55", "17:40"],
-  9: ["18:30", "19:15"],
-  10: ["19:25", "20:10"],
-  11: ["20:20", "21:05"],
+  1: ["08:00", "08:50"],
+  2: ["09:00", "09:50"],
+  3: ["10:10", "11:00"],
+  4: ["11:10", "12:00"],
+  5: ["14:00", "14:50"],
+  6: ["15:00", "15:50"],
+  7: ["16:10", "17:00"],
+  8: ["17:10", "18:00"],
+  9: ["18:30", "19:20"],
+  10: ["19:30", "20:20"],
+  11: ["20:30", "21:20"],
+  12: ["21:30", "22:20"],
 };
 
 const WEEKDAY_MAP = new Map([
@@ -224,6 +225,8 @@ function parsePeriodRange(value) {
   return {
     startTime: PERIOD_TIMES[startPeriod][0],
     endTime: PERIOD_TIMES[endPeriod][1],
+    startPeriod,
+    endPeriod,
   };
 }
 
@@ -259,6 +262,8 @@ function parseNjuTeachingSchedule({
           day,
           startTime: timeRange.startTime,
           endTime: timeRange.endTime,
+          startPeriod: timeRange.startPeriod,
+          endPeriod: timeRange.endPeriod,
           location: segmentLocation,
           teacher,
           classNumber,
@@ -355,6 +360,8 @@ function buildClassItem({
   day,
   startTime,
   endTime,
+  startPeriod = null,
+  endPeriod = null,
   location,
   teacher = "",
   classNumber = "",
@@ -370,6 +377,8 @@ function buildClassItem({
     day,
     startTime,
     endTime,
+    startPeriod: startPeriod || inferPeriod(startTime, "start"),
+    endPeriod: endPeriod || inferPeriod(endTime, "end"),
     location: String(location || "").trim(),
     courseId: "",
     courseName: cleanTitle,
@@ -400,6 +409,14 @@ function dedupeClasses(classes) {
     seen.add(key);
     return true;
   });
+}
+
+function inferPeriod(value, edge) {
+  const target = String(value || "");
+  const entry = Object.entries(PERIOD_TIMES).find(([, range]) =>
+    edge === "end" ? range[1] === target : range[0] === target
+  );
+  return entry ? Number(entry[0]) : null;
 }
 
 function timeToMinutes(value) {

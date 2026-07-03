@@ -64,7 +64,7 @@ function DDLPanel({
               letterSpacing: "-0.03em",
             }}
           >
-            DDL
+            近期任务
           </h2>
 
           <p
@@ -74,7 +74,7 @@ function DDLPanel({
               fontSize: "13px",
             }}
           >
-            共 {ddls.length} 项待完成
+            {ddls.length > 0 ? `${ddls.length} 项待处理` : "当前没有待办"}
           </p>
         </div>
 
@@ -86,32 +86,26 @@ function DDLPanel({
           }}
         >
           <button
+            type="button"
             onClick={onViewAllDDL}
             title="进入 DDL 管理"
             style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "50%",
+              minHeight: "40px",
+              borderRadius: "11px",
               border: darkMode
                 ? "1px solid rgba(148,163,184,0.18)"
                 : "1px solid rgba(226,232,240,0.9)",
               background: darkMode
-                ? "rgba(30,41,59,0.88)"
-                : "rgba(255,255,255,0.86)",
+                ? "rgba(30,41,59,0.72)"
+                : "rgba(255,255,255,0.82)",
               color: darkMode ? "#CBD5E1" : "#64748B",
               cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "22px",
-              lineHeight: 1,
-              fontFamily: "inherit",
-              boxShadow: darkMode
-                ? "0 10px 24px rgba(0,0,0,0.18)"
-                : "0 8px 20px rgba(15,42,74,0.05)",
+              padding: "0 12px",
+              fontSize: "12px",
+              fontWeight: 700,
             }}
           >
-            ⋯
+            全部
           </button>
 
           <button
@@ -141,7 +135,46 @@ function DDLPanel({
           gap: "12px",
         }}
       >
-        {previewDDLs.map((ddl) => {
+        {previewDDLs.length === 0 ? (
+          <div
+            style={{
+              minHeight: "170px",
+              border: `1px dashed ${theme.border}`,
+              borderRadius: "14px",
+              background: theme.bg,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              padding: "20px",
+              textAlign: "center",
+            }}
+          >
+            <strong style={{ color: theme.title, fontSize: "14px" }}>
+              今天没有紧急任务
+            </strong>
+            <span style={{ color: theme.muted, fontSize: "12px", lineHeight: 1.6 }}>
+              新建一个任务，或进入日程页规划本周安排。
+            </span>
+            <button
+              type="button"
+              onClick={onAddDDL}
+              style={{
+                border: "none",
+                borderRadius: "10px",
+                background: theme.button,
+                color: "#FFFFFF",
+                cursor: "pointer",
+                padding: "9px 13px",
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              新建任务
+            </button>
+          </div>
+        ) : previewDDLs.map((ddl) => {
           const remain = getDDLRemainInfo(ddl.date, theme);
 
           return (
@@ -249,7 +282,7 @@ function DDLPanel({
       </div>
 
       {/* 查看全部 */}
-      {ddls.length > 4 && (
+      {ddls.length > 5 && (
         <div
           style={{
             display: "flex",

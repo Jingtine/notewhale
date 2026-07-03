@@ -70,8 +70,8 @@ function GlobalSettingsModal({
 
   return (
     <div style={overlayStyle(darkMode)}>
-      <div style={modalStyle(colors)}>
-        <header style={modalHeaderStyle}>
+      <div className="settings-modal" style={modalStyle(colors)}>
+        <header className="settings-modal-header" style={modalHeaderStyle}>
           <div>
             <div style={{ color: colors.active, fontSize: "12px", fontWeight: 900 }}>
               Settings
@@ -86,8 +86,8 @@ function GlobalSettingsModal({
           <button onClick={onClose} style={closeButtonStyle(colors)}>×</button>
         </header>
 
-        <div style={settingsLayoutStyle}>
-          <aside style={settingsNavStyle(colors)}>
+        <div className="settings-layout" style={settingsLayoutStyle}>
+          <aside className="settings-nav" style={settingsNavStyle(colors)}>
             <div style={{ color: colors.muted, fontSize: "12px", fontWeight: 900, marginBottom: "10px" }}>
               设置分类
             </div>
@@ -113,7 +113,7 @@ function GlobalSettingsModal({
             </div>
           </aside>
 
-          <section style={settingsContentStyle(colors)}>
+          <section className="settings-content" style={settingsContentStyle(colors)}>
             {activeSection === "account" && (
               <AccountSettingsSection
                 user={user}
@@ -516,7 +516,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
         <div>
           <h3 style={sectionTitleStyle(colors)}>账号与安全</h3>
           <p style={sectionTextStyle(colors)}>
-            管理当前账号的展示名称、登录密码和浏览器会话。
+            展示名称、登录密码和当前会话。
           </p>
         </div>
       </div>
@@ -540,10 +540,10 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
       </div>
 
       <div style={accountMetaGridStyle}>
-        <AccountMeta label="账号状态" value="正常" colors={colors} tone="success" />
-        <AccountMeta label="数据隔离" value="按账号独立保存" colors={colors} />
-        <AccountMeta label="创建时间" value={accountCreatedAt} colors={colors} />
-        <AccountMeta label="本次登录" value={loginAt} colors={colors} />
+        <AccountMeta label="状态" value="正常" colors={colors} tone="success" />
+        <AccountMeta label="数据" value="按账号保存" colors={colors} />
+        <AccountMeta label="创建" value={accountCreatedAt} colors={colors} />
+        <AccountMeta label="登录" value={loginAt} colors={colors} />
       </div>
 
       <div style={accountGridStyle}>
@@ -552,7 +552,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
             <div>
               <h4 style={accountPanelTitleStyle(colors)}>账号资料</h4>
               <p style={accountPanelTextStyle(colors)}>
-                展示昵称会用于首页问候、侧边栏账号卡片和后续协作场景。
+                用于首页和侧边栏显示。
               </p>
             </div>
           </div>
@@ -574,7 +574,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
             disabled={savingProfile}
             style={primaryButtonStyle(colors, savingProfile)}
           >
-            {savingProfile ? "保存中..." : "保存资料"}
+            {savingProfile ? "保存中..." : "保存"}
           </button>
         </form>
 
@@ -583,7 +583,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
             <div>
               <h4 style={accountPanelTitleStyle(colors)}>登录密码</h4>
               <p style={accountPanelTextStyle(colors)}>
-                修改后不会影响当前会话，下次登录时使用新密码。
+                下次登录时生效。
               </p>
             </div>
           </div>
@@ -614,7 +614,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
             disabled={savingPassword}
             style={secondaryButtonStyle(colors, savingPassword)}
           >
-            {savingPassword ? "更新中..." : "修改密码"}
+            {savingPassword ? "更新中..." : "更新密码"}
           </button>
         </form>
       </div>
@@ -623,7 +623,7 @@ function AccountSettingsSection({ user, colors, onUserUpdated, onLogout, onClose
         <div>
           <h4 style={accountPanelTitleStyle(colors)}>安全操作</h4>
           <p style={accountPanelTextStyle(colors)}>
-            退出后会清除当前浏览器里的登录令牌，课程数据仍保存在你的账号下。
+            只退出当前设备。
           </p>
         </div>
         <button type="button" onClick={handleLogout} style={dangerButtonStyle(colors)}>
@@ -690,13 +690,15 @@ function accountHeroStyle(colors) {
   return {
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: "16px",
     background: colors.card,
     border: `1px solid ${colors.border}`,
     borderRadius: "16px",
-    padding: "16px",
-    marginBottom: "14px",
+    padding: "14px",
+    marginBottom: "12px",
     minWidth: 0,
+    flexWrap: "wrap",
   };
 }
 
@@ -731,9 +733,9 @@ function accountBadgeStyle(colors, tone) {
 
 const accountMetaGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-  gap: "12px",
-  marginBottom: "16px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "10px",
+  marginBottom: "14px",
 };
 
 function accountMetaStyle(colors) {
@@ -741,20 +743,20 @@ function accountMetaStyle(colors) {
     display: "grid",
     background: colors.panel,
     border: `1px solid ${colors.border}`,
-    borderRadius: "14px",
-    padding: "13px",
+    borderRadius: "12px",
+    padding: "11px 12px",
     minWidth: 0,
   };
 }
 
 const accountGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: "16px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: "12px",
 };
 
 const accountPanelHeaderStyle = {
-  minHeight: "58px",
+  minHeight: "44px",
 };
 
 function accountPanelTitleStyle(colors) {
@@ -782,11 +784,11 @@ function dangerZoneStyle(colors) {
     justifyContent: "space-between",
     gap: "16px",
     flexWrap: "wrap",
-    marginTop: "16px",
+    marginTop: "12px",
     background: `${colors.danger}08`,
     border: `1px solid ${colors.danger}24`,
-    borderRadius: "16px",
-    padding: "16px",
+    borderRadius: "14px",
+    padding: "13px 14px",
   };
 }
 
@@ -814,10 +816,10 @@ function accountPanelStyle(colors) {
     display: "grid",
     gap: "12px",
     alignContent: "start",
-    background: colors.panel,
+    background: colors.card,
     border: `1px solid ${colors.border}`,
     borderRadius: "14px",
-    padding: "14px",
+    padding: "15px",
   };
 }
 
@@ -834,7 +836,11 @@ function accountReadonlyStyle(colors) {
     color: colors.title,
     fontSize: "14px",
     fontWeight: 900,
-    marginTop: "8px",
+    marginTop: "7px",
+    background: colors.panel,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    padding: "10px 12px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -866,6 +872,9 @@ function primaryButtonStyle(colors, disabled) {
     fontSize: "14px",
     fontWeight: 900,
     opacity: disabled ? 0.64 : 1,
+    justifySelf: "start",
+    minWidth: "116px",
+    padding: "0 18px",
   };
 }
 
@@ -880,6 +889,9 @@ function secondaryButtonStyle(colors, disabled) {
     fontSize: "14px",
     fontWeight: 900,
     opacity: disabled ? 0.64 : 1,
+    justifySelf: "start",
+    minWidth: "116px",
+    padding: "0 18px",
   };
 }
 
@@ -899,7 +911,7 @@ function overlayStyle(darkMode) {
 
 function modalStyle(colors) {
   return {
-    width: "min(980px, 100%)",
+    width: "min(1180px, 100%)",
     maxHeight: "calc(100vh - 56px)",
     overflowY: "auto",
     background: colors.panel,
@@ -916,6 +928,7 @@ const modalHeaderStyle = {
   justifyContent: "space-between",
   gap: "18px",
   alignItems: "flex-start",
+  flexWrap: "wrap",
   marginBottom: "22px",
 };
 
@@ -927,15 +940,15 @@ const summaryGridStyle = {
 };
 
 const settingsLayoutStyle = {
-  display: "flex",
-  flexWrap: "wrap",
+  display: "grid",
+  gridTemplateColumns: "minmax(210px, 240px) minmax(0, 1fr)",
   gap: "18px",
   alignItems: "start",
 };
 
 function settingsNavStyle(colors) {
   return {
-    flex: "1 1 220px",
+    minWidth: 0,
     position: "sticky",
     top: 0,
     display: "grid",
@@ -978,8 +991,9 @@ function accountSnapshotStyle(colors) {
 
 function settingsContentStyle(colors) {
   return {
-    flex: "999 1 520px",
+    width: "100%",
     minWidth: 0,
+    overflow: "hidden",
     background: colors.panel,
     border: `1px solid ${colors.border}`,
     borderRadius: "18px",

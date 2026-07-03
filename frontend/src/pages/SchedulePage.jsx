@@ -28,7 +28,8 @@ import { generateStudyPlanBlocks } from "../data/schedulePlanner";
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const START_HOUR = 8;
 const END_HOUR = 22;
-const HOUR_HEIGHT = 20;
+const HOUR_HEIGHT = 26;
+const DAY_HEADER_HEIGHT = 40;
 const SCHEDULE_STORAGE_KEY = "fixedClassSchedule";
 const SCHEDULE_SEMESTER_START_KEY = "scheduleSemesterStartMonday";
 const STUDY_PLAN_STORAGE_KEY = "studyPlanBlocks";
@@ -87,6 +88,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
   const [studyPlanMessage, setStudyPlanMessage] = useState("可选中复习块微调。");
   const [selectedFolder, setSelectedFolder] = useState("学习日程");
   const [searchText, setSearchText] = useState("");
+  const [activeScheduleTool, setActiveScheduleTool] = useState(null);
 
   const colors = buildColors(darkMode);
   const hasDesktopScheduleBridge = hasNjuScheduleBridge();
@@ -722,7 +724,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
           <div style={calendarScrollStyle}>
             <div style={weekGridStyle(colors)}>
             <div style={timeColumnStyle(colors)}>
-              <div style={{ height: "48px" }} />
+              <div style={{ height: `${DAY_HEADER_HEIGHT}px` }} />
               {Array.from({ length: END_HOUR - START_HOUR }, (_, index) => (
                 <div key={index} style={timeLabelStyle(colors)}>
                   {String(START_HOUR + index).padStart(2, "0")}:00
@@ -814,135 +816,229 @@ function SchedulePage({ user = null, onLogout } = {}) {
           )}
         </section>
 
-        <aside style={sidePanelStyle(colors)}>
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>南京大学课表导入</h2>
-            <p style={panelTextStyle(colors)}>
-              认证后读取课表；不保存账号密码。
-            </p>
-            <div style={importActionRowStyle}>
-              <button
-                type="button"
-                onClick={autoImportNjuSchedule}
-                disabled={njuImporting}
-                style={primaryButtonStyle(colors, njuImporting)}
-              >
-                认证并自动读取
-              </button>
-              <button
-                type="button"
-                onClick={() => openNjuTeachingPortal()}
-                style={outlineButtonStyle(colors)}
-              >
-                官方入口
-              </button>
-              <button type="button" onClick={previewImportedSchedule} style={outlineButtonStyle(colors)}>
-                解析预览
-              </button>
+        <section style={toolDockStyle(colors)}>
+          <div style={toolDockHeaderStyle}>
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ color: colors.title, fontSize: "16px" }}>日程工具</strong>
+              <p style={{ margin: "4px 0 0", color: colors.text, fontSize: "12px" }}>
+                导入、录入和规划按需展开，周视图保持为页面主体。
+              </p>
             </div>
-            <p style={importMessageStyle(colors)}>
-              {hasDesktopScheduleBridge
-                ? "桌面读取已可用。"
-                : "网页模式可粘贴导入。"}
-            </p>
-            <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
-              <span>本学期第 1 周周一</span>
-              <div style={semesterInputRowStyle}>
-                <input
-                  type="date"
-                  value={semesterStartMonday}
-                  onChange={(event) => setSemesterStartMonday(event.target.value)}
-                  style={inputStyle(colors)}
-                />
+
+            <div style={toolButtonGridStyle}>
+              <ScheduleToolButton
+                colors={colors}
+                active={activeScheduleTool === "import"}
+                label="导入课表"
+                meta={hasDesktopScheduleBridge ? "桌面读取" : "文件导入"}
+                onClick={() =>
+                  setActiveScheduleTool((current) => (current === "import" ? null : "import"))
+                }
+              />
+              <ScheduleToolButton
+                colors={colors}
+                active={activeScheduleTool === "class"}
+                label="添加课程"
+                meta={`${fixedClasses.length} 项`}
+                onClick={() =>
+                  setActiveScheduleTool((current) => (current === "class" ? null : "class"))
+                }
+              />
+              <ScheduleToolButton
+                colors={colors}
+                active={activeScheduleTool === "exam"}
+                label="添加考试"
+                meta={`${exams.length} 项`}
+                onClick={() =>
+                  setActiveScheduleTool((current) => (current === "exam" ? null : "exam"))
+                }
+              />
+              <ScheduleToolButton
+                colors={colors}
+                active={activeScheduleTool === "plan"}
+                label="复习规划"
+                meta={`${weekStudyPlanBlocks.length} 块`}
+                onClick={() =>
+                  setActiveScheduleTool((current) => (current === "plan" ? null : "plan"))
+                }
+              />
+            </div>
+          </div>
+
+          <div style={readinessStripStyle(colors)}>
+            <ReadinessChip colors={colors} active={fixedClasses.length > 0} label="固定课表" />
+            <ReadinessChip colors={colors} active={Boolean(semesterStartMonday)} label="教学周" />
+            <ReadinessChip colors={colors} active={weekDdls.length > 0} label={`DDL ${weekDdls.length}`} />
+            <ReadinessChip colors={colors} active={weekExams.length > 0} label={`考试 ${weekExams.length}`} />
+            <ReadinessChip
+              colors={colors}
+              active={scheduleConflicts.length === 0}
+              label={scheduleConflicts.length === 0 ? "无冲突" : `${scheduleConflicts.length} 个冲突`}
+              warning={scheduleConflicts.length > 0}
+            />
+            <span style={{ marginLeft: "auto", color: colors.text, fontSize: "12px", whiteSpace: "nowrap" }}>
+              {activeScheduleTool ? "再次点击可收起" : "选择工具开始"}
+            </span>
+          </div>
+
+          {activeScheduleTool === "import" && (
+            <div style={toolDrawerStyle(colors)}>
+              <div style={toolDrawerHeaderStyle}>
+                <div>
+                  <h2 style={toolDrawerTitleStyle(colors)}>导入课表</h2>
+                  <p style={toolDrawerTextStyle(colors)}>优先使用桌面认证读取，也可导入 CSV、TXT 或粘贴文本。</p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setSemesterStartMonday(formatDateInput(currentWeek))}
-                  style={outlineButtonStyle(colors)}
+                  onClick={() => setActiveScheduleTool(null)}
+                  style={toolCloseButtonStyle(colors)}
                 >
-                  设为本周
+                  收起
                 </button>
               </div>
-            </label>
-            <p style={importMessageStyle(colors)}>
-              {teachingWeek
-                ? `第 ${teachingWeek} 教学周`
-                : "未设置教学周"}
-            </p>
-            <label style={{ ...fieldStyle(colors), marginTop: "14px" }}>
-              <span>粘贴课表 / 导入 CSV、TXT</span>
-              <input
-                type="file"
-                accept=".csv,.txt,.tsv"
-                onChange={readScheduleImportFile}
-                style={fileInputStyle(colors)}
-              />
-              <textarea
-                value={scheduleImportText}
-                onChange={(event) => setScheduleImportText(event.target.value)}
-                placeholder="示例：高等数学,周一,1-2节,仙林校区 教学楼101"
-                style={textareaStyle(colors)}
-              />
-            </label>
-            <p style={importMessageStyle(colors)}>{scheduleImportMessage}</p>
-            {scheduleImportPreview.length > 0 && (
-              <div style={importPreviewStyle(colors)}>
-                {scheduleImportPreview.slice(0, 4).map((item, index) => (
-                  <div key={`${item.title}-${item.day}-${index}`} style={importPreviewItemStyle(colors)}>
-                    <strong>{item.title}</strong>
-                    <span>
-                      {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime}
-                    </span>
-                    <span>{buildClassMetaText(item) || item.location || "未填写地点"}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {scheduleImportErrors.length > 0 && (
-              <p style={importErrorStyle(colors)}>
-                {scheduleImportErrors.slice(0, 2).join("；")}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={importScheduleClasses}
-              disabled={scheduleImportText.trim().length === 0}
-              style={primaryButtonStyle(colors, scheduleImportText.trim().length === 0)}
-            >
-              导入到固定课表
-            </button>
-          </section>
 
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>录入固定课表</h2>
-            <p style={panelTextStyle(colors)}>
-              锁定上课时间，规划自动避开。
-            </p>
-            <form onSubmit={addFixedClass} style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
-              <label style={fieldStyle(colors)}>
-                <span>课程名称</span>
-                <input
-                  value={classTitle}
-                  onChange={(event) => setClassTitle(event.target.value)}
-                  placeholder="例如：高等数学"
-                  style={inputStyle(colors)}
-                />
-              </label>
-              <label style={fieldStyle(colors)}>
-                <span>关联课程</span>
-                <select
-                  value={classCourseId}
-                  onChange={(event) => setClassCourseId(event.target.value)}
-                  style={inputStyle(colors)}
-                >
-                  <option value="">不关联课程</option>
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={toolDrawerGridStyle}>
+                <div style={compactToolCardStyle(colors)}>
+                  <div style={importActionRowStyle}>
+                    <button
+                      type="button"
+                      onClick={autoImportNjuSchedule}
+                      disabled={njuImporting}
+                      style={primaryButtonStyle(colors, njuImporting)}
+                    >
+                      {njuImporting ? "正在读取…" : "认证并自动读取"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openNjuTeachingPortal()}
+                      style={outlineButtonStyle(colors)}
+                    >
+                      官方入口
+                    </button>
+                    <button type="button" onClick={previewImportedSchedule} style={outlineButtonStyle(colors)}>
+                      解析预览
+                    </button>
+                  </div>
+
+                  <p style={importMessageStyle(colors)}>
+                    {hasDesktopScheduleBridge ? "桌面读取已可用。" : "网页模式可粘贴或导入文件。"}
+                  </p>
+
+                  <label style={{ ...fieldStyle(colors), marginTop: "12px" }}>
+                    <span>本学期第 1 周周一</span>
+                    <div style={semesterInputRowStyle}>
+                      <input
+                        type="date"
+                        value={semesterStartMonday}
+                        onChange={(event) => setSemesterStartMonday(event.target.value)}
+                        style={inputStyle(colors)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSemesterStartMonday(formatDateInput(currentWeek))}
+                        style={outlineButtonStyle(colors)}
+                      >
+                        设为本周
+                      </button>
+                    </div>
+                  </label>
+
+                  <p style={importMessageStyle(colors)}>
+                    {teachingWeek ? `当前第 ${teachingWeek} 教学周` : "尚未设置教学周"}
+                  </p>
+                </div>
+
+                <div style={compactToolCardStyle(colors)}>
+                  <label style={fieldStyle(colors)}>
+                    <span>CSV、TXT 或课表文本</span>
+                    <input
+                      type="file"
+                      accept=".csv,.txt,.tsv"
+                      onChange={readScheduleImportFile}
+                      style={fileInputStyle(colors)}
+                    />
+                    <textarea
+                      value={scheduleImportText}
+                      onChange={(event) => setScheduleImportText(event.target.value)}
+                      placeholder="示例：高等数学,周一,1-2节,仙林校区 教学楼101"
+                      style={{ ...textareaStyle(colors), minHeight: "84px" }}
+                    />
+                  </label>
+
+                  <p style={importMessageStyle(colors)}>{scheduleImportMessage}</p>
+
+                  {scheduleImportPreview.length > 0 && (
+                    <div style={importPreviewStyle(colors)}>
+                      {scheduleImportPreview.slice(0, 4).map((item, index) => (
+                        <div key={`${item.title}-${item.day}-${index}`} style={importPreviewItemStyle(colors)}>
+                          <strong>{item.title}</strong>
+                          <span>
+                            {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime}
+                          </span>
+                          <span>{buildClassMetaText(item) || item.location || "未填写地点"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {scheduleImportErrors.length > 0 && (
+                    <p style={importErrorStyle(colors)}>
+                      {scheduleImportErrors.slice(0, 2).join("；")}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={importScheduleClasses}
+                    disabled={scheduleImportText.trim().length === 0}
+                    style={primaryButtonStyle(colors, scheduleImportText.trim().length === 0)}
+                  >
+                    导入到固定课表
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeScheduleTool === "class" && (
+            <div style={toolDrawerStyle(colors)}>
+              <div style={toolDrawerHeaderStyle}>
+                <div>
+                  <h2 style={toolDrawerTitleStyle(colors)}>添加固定课程</h2>
+                  <p style={toolDrawerTextStyle(colors)}>课程会锁定对应时间，自动规划将避开该时段。</p>
+                </div>
+                <button type="button" onClick={() => setActiveScheduleTool(null)} style={toolCloseButtonStyle(colors)}>
+                  收起
+                </button>
+              </div>
+
+              <form onSubmit={addFixedClass} style={compactFormGridStyle}>
+                <label style={fieldStyle(colors)}>
+                  <span>课程名称</span>
+                  <input
+                    value={classTitle}
+                    onChange={(event) => setClassTitle(event.target.value)}
+                    placeholder="例如：高等数学"
+                    style={inputStyle(colors)}
+                  />
+                </label>
+
+                <label style={fieldStyle(colors)}>
+                  <span>关联课程</span>
+                  <select
+                    value={classCourseId}
+                    onChange={(event) => setClassCourseId(event.target.value)}
+                    style={inputStyle(colors)}
+                  >
+                    <option value="">不关联课程</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label style={fieldStyle(colors)}>
                   <span>星期</span>
                   <select value={classDay} onChange={(event) => setClassDay(event.target.value)} style={inputStyle(colors)}>
@@ -953,6 +1049,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     ))}
                   </select>
                 </label>
+
                 <label style={fieldStyle(colors)}>
                   <span>地点</span>
                   <input
@@ -962,57 +1059,67 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     style={inputStyle(colors)}
                   />
                 </label>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+
                 <label style={fieldStyle(colors)}>
                   <span>开始</span>
                   <input type="time" value={classStart} onChange={(event) => setClassStart(event.target.value)} style={inputStyle(colors)} />
                 </label>
+
                 <label style={fieldStyle(colors)}>
                   <span>结束</span>
                   <input type="time" value={classEnd} onChange={(event) => setClassEnd(event.target.value)} style={inputStyle(colors)} />
                 </label>
-              </div>
-              <button type="submit" style={primaryButtonStyle(colors)}>
-                保存固定课程
-              </button>
-            </form>
-          </section>
 
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>录入考试</h2>
-            <p style={panelTextStyle(colors)}>
-              用于月视图和复习权重。
-            </p>
-            <form onSubmit={addExam} style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
-              <label style={fieldStyle(colors)}>
-                <span>科目</span>
-                <input
-                  value={examSubject}
-                  onChange={(event) => setExamSubject(event.target.value)}
-                  placeholder="例如：高等数学期末"
-                  style={inputStyle(colors)}
-                />
-              </label>
-              <label style={fieldStyle(colors)}>
-                <span>考试时间</span>
-                <input
-                  type="datetime-local"
-                  value={examDate}
-                  onChange={(event) => setExamDate(event.target.value)}
-                  style={inputStyle(colors)}
-                />
-              </label>
-              <label style={fieldStyle(colors)}>
-                <span>复习目标</span>
-                <input
-                  value={examGoal}
-                  onChange={(event) => setExamGoal(event.target.value)}
-                  placeholder="例如：完成错题回看和公式整理"
-                  style={inputStyle(colors)}
-                />
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <button type="submit" style={{ ...primaryButtonStyle(colors), alignSelf: "end" }}>
+                  保存固定课程
+                </button>
+              </form>
+            </div>
+          )}
+
+          {activeScheduleTool === "exam" && (
+            <div style={toolDrawerStyle(colors)}>
+              <div style={toolDrawerHeaderStyle}>
+                <div>
+                  <h2 style={toolDrawerTitleStyle(colors)}>添加考试</h2>
+                  <p style={toolDrawerTextStyle(colors)}>考试将参与月视图展示和复习规划权重。</p>
+                </div>
+                <button type="button" onClick={() => setActiveScheduleTool(null)} style={toolCloseButtonStyle(colors)}>
+                  收起
+                </button>
+              </div>
+
+              <form onSubmit={addExam} style={compactFormGridStyle}>
+                <label style={fieldStyle(colors)}>
+                  <span>科目</span>
+                  <input
+                    value={examSubject}
+                    onChange={(event) => setExamSubject(event.target.value)}
+                    placeholder="例如：高等数学期末"
+                    style={inputStyle(colors)}
+                  />
+                </label>
+
+                <label style={fieldStyle(colors)}>
+                  <span>考试时间</span>
+                  <input
+                    type="datetime-local"
+                    value={examDate}
+                    onChange={(event) => setExamDate(event.target.value)}
+                    style={inputStyle(colors)}
+                  />
+                </label>
+
+                <label style={fieldStyle(colors)}>
+                  <span>复习目标</span>
+                  <input
+                    value={examGoal}
+                    onChange={(event) => setExamGoal(event.target.value)}
+                    placeholder="例如：完成错题回看和公式整理"
+                    style={inputStyle(colors)}
+                  />
+                </label>
+
                 <label style={fieldStyle(colors)}>
                   <span>重要度</span>
                   <select value={examImportance} onChange={(event) => setExamImportance(event.target.value)} style={inputStyle(colors)}>
@@ -1023,6 +1130,7 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     ))}
                   </select>
                 </label>
+
                 <label style={fieldStyle(colors)}>
                   <span>复习块时长</span>
                   <select value={examReviewMinutes} onChange={(event) => setExamReviewMinutes(event.target.value)} style={inputStyle(colors)}>
@@ -1032,173 +1140,167 @@ function SchedulePage({ user = null, onLogout } = {}) {
                     <option value="120">120 分钟</option>
                   </select>
                 </label>
-              </div>
-              <button type="submit" style={primaryButtonStyle(colors)}>
-                保存考试
-              </button>
-            </form>
-            {exams.length > 0 && (
-              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
-                {exams.slice(0, 4).map((exam) => (
-                  <div key={exam.id} style={examMiniCardStyle(colors, exam.completed)}>
-                    <strong>{exam.subject}</strong>
-                    <span>{exam.date} · 重要度 {exam.importance}</span>
-                    {exam.goal && <span>{exam.goal}</span>}
-                    <div style={miniActionRowStyle}>
-                      <button type="button" onClick={() => toggleExamDone(exam.id)} style={miniButtonStyle(colors)}>
-                        {exam.completed ? "取消完成" : "完成"}
-                      </button>
-                      <button type="button" onClick={() => deleteExam(exam.id)} style={miniButtonStyle(colors)}>
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
 
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>规划准备度</h2>
-            <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
-              <PlanningLine colors={colors} active={fixedClasses.length > 0} text="已录入固定课表" />
-              <PlanningLine colors={colors} active={Boolean(semesterStartMonday)} text="已设置教学周过滤" />
-              <PlanningLine colors={colors} active={weekDdls.length > 0} text="已有 DDL 截止时间" />
-              <PlanningLine colors={colors} active={weekExams.length > 0} text="已有考试信息" />
-              <PlanningLine colors={colors} active={weekStudyPlanBlocks.length > 0} text="已生成本周复习块" />
-              <PlanningLine colors={colors} active={scheduleConflicts.length === 0} text="冲突检测通过" />
-            </div>
-            {scheduleConflicts.length > 0 && (
-              <div style={conflictListStyle}>
-                {scheduleConflicts.slice(0, 4).map((conflict) => (
-                  <div key={conflict.key} style={conflictItemStyle(colors)}>
-                    {conflict.text}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>自动复习规划</h2>
-            <p style={panelTextStyle(colors)}>
-              优先安排截止前的空余时间。
-            </p>
-            <div style={importActionRowStyle}>
-              <button type="button" onClick={generateWeeklyStudyPlan} style={primaryButtonStyle(colors)}>
-                生成本周规划
-              </button>
-              <button type="button" onClick={clearWeeklyStudyPlan} style={outlineButtonStyle(colors)}>
-                清空本周
-              </button>
-              <button type="button" onClick={postponeUnfinishedStudyBlocks} style={outlineButtonStyle(colors)}>
-                顺延未完成
-              </button>
-              <button type="button" onClick={enableScheduleReminders} style={outlineButtonStyle(colors)}>
-                {remindersEnabled ? "提醒已开" : "开启提醒"}
-              </button>
-            </div>
-            {weekStudyPlanBlocks.length === 0 ? (
-              <p style={panelTextStyle(colors)}>本周还没有复习块。</p>
-            ) : (
-              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
-                {weekStudyPlanBlocks.slice(0, 5).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => selectStudyPlanBlock(item)}
-                    style={selectableMiniCardStyle(colors, studyBlockDraft?.id === item.id)}
-                  >
-                    <strong style={{ color: colors.title, fontSize: "13px" }}>{item.title}</strong>
-                    <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
-                      {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime} · {item.courseName}
-                    </span>
-                    <span style={{ color: item.completedAt ? colors.success : colors.text, fontSize: "12px", marginTop: "4px" }}>
-                      {item.completedAt ? "已完成" : "未完成"}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {studyBlockDraft && (
-              <form onSubmit={saveStudyBlockDraft} style={studyEditFormStyle(colors)}>
-                <label style={fieldStyle(colors)}>
-                  <span>复习块标题</span>
-                  <input
-                    value={studyBlockDraft.title}
-                    onChange={(event) => updateStudyBlockDraft({ title: event.target.value })}
-                    style={inputStyle(colors)}
-                  />
-                </label>
-                <label style={fieldStyle(colors)}>
-                  <span>星期</span>
-                  <select
-                    value={studyBlockDraft.day}
-                    onChange={(event) => updateStudyBlockDraft({ day: event.target.value })}
-                    style={inputStyle(colors)}
-                  >
-                    {WEEKDAYS.map((label, index) => (
-                      <option key={label} value={index + 1}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  <label style={fieldStyle(colors)}>
-                    <span>开始</span>
-                    <input
-                      type="time"
-                      value={studyBlockDraft.startTime}
-                      onChange={(event) => updateStudyBlockDraft({ startTime: event.target.value })}
-                      style={inputStyle(colors)}
-                    />
-                  </label>
-                  <label style={fieldStyle(colors)}>
-                    <span>结束</span>
-                    <input
-                      type="time"
-                      value={studyBlockDraft.endTime}
-                      onChange={(event) => updateStudyBlockDraft({ endTime: event.target.value })}
-                      style={inputStyle(colors)}
-                    />
-                  </label>
-                </div>
-                <div style={importActionRowStyle}>
-                  <button type="submit" style={primaryButtonStyle(colors)}>
-                    保存调整
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteStudyPlanBlock(studyBlockDraft.id)}
-                    style={outlineButtonStyle(colors)}
-                  >
-                    删除
-                  </button>
-                </div>
+                <button type="submit" style={{ ...primaryButtonStyle(colors), alignSelf: "end" }}>
+                  保存考试
+                </button>
               </form>
-            )}
-            <p style={importMessageStyle(colors)}>{studyPlanMessage}</p>
-          </section>
 
-          <section style={panelCardStyle(colors)}>
-            <h2 style={panelTitleStyle(colors)}>本周 DDL</h2>
-            {weekDdls.length === 0 ? (
-              <p style={panelTextStyle(colors)}>本周暂无待处理 DDL。</p>
-            ) : (
-              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
-                {weekDdls.slice(0, 6).map(({ ddl, date }) => (
-                  <div key={ddl.id} style={ddlMiniCardStyle(colors)}>
-                    <strong style={{ color: colors.title, fontSize: "13px" }}>{ddl.title}</strong>
-                    <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
-                      {formatMonthDay(date)} {formatTime(date)} · {ddl.courseName || "未归属课程"}
-                    </span>
-                  </div>
-                ))}
+              {exams.length > 0 && (
+                <div style={compactListStyle}>
+                  {exams.slice(0, 5).map((exam) => (
+                    <div key={exam.id} style={examMiniCardStyle(colors, exam.completed)}>
+                      <strong>{exam.subject}</strong>
+                      <span>{exam.date} · 重要度 {exam.importance}</span>
+                      {exam.goal && <span>{exam.goal}</span>}
+                      <div style={miniActionRowStyle}>
+                        <button type="button" onClick={() => toggleExamDone(exam.id)} style={miniButtonStyle(colors)}>
+                          {exam.completed ? "取消完成" : "完成"}
+                        </button>
+                        <button type="button" onClick={() => deleteExam(exam.id)} style={miniButtonStyle(colors)}>
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeScheduleTool === "plan" && (
+            <div style={toolDrawerStyle(colors)}>
+              <div style={toolDrawerHeaderStyle}>
+                <div>
+                  <h2 style={toolDrawerTitleStyle(colors)}>复习规划</h2>
+                  <p style={toolDrawerTextStyle(colors)}>根据固定课程、DDL 和考试，在空余时间生成复习块。</p>
+                </div>
+                <button type="button" onClick={() => setActiveScheduleTool(null)} style={toolCloseButtonStyle(colors)}>
+                  收起
+                </button>
               </div>
-            )}
-          </section>
-        </aside>
+
+              <div style={importActionRowStyle}>
+                <button type="button" onClick={generateWeeklyStudyPlan} style={primaryButtonStyle(colors)}>
+                  生成本周规划
+                </button>
+                <button type="button" onClick={clearWeeklyStudyPlan} style={outlineButtonStyle(colors)}>
+                  清空本周
+                </button>
+                <button type="button" onClick={postponeUnfinishedStudyBlocks} style={outlineButtonStyle(colors)}>
+                  顺延未完成
+                </button>
+                <button type="button" onClick={enableScheduleReminders} style={outlineButtonStyle(colors)}>
+                  {remindersEnabled ? "提醒已开启" : "开启提醒"}
+                </button>
+              </div>
+
+              <p style={importMessageStyle(colors)}>{studyPlanMessage}</p>
+
+              {scheduleConflicts.length > 0 && (
+                <div style={conflictListStyle}>
+                  {scheduleConflicts.slice(0, 4).map((conflict) => (
+                    <div key={conflict.key} style={conflictItemStyle(colors)}>
+                      {conflict.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={planWorkspaceStyle}>
+                <div style={compactToolCardStyle(colors)}>
+                  <strong style={{ color: colors.title, fontSize: "14px" }}>本周复习块</strong>
+                  {weekStudyPlanBlocks.length === 0 ? (
+                    <p style={panelTextStyle(colors)}>本周还没有复习块。</p>
+                  ) : (
+                    <div style={compactListStyle}>
+                      {weekStudyPlanBlocks.slice(0, 6).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => selectStudyPlanBlock(item)}
+                          style={selectableMiniCardStyle(colors, studyBlockDraft?.id === item.id)}
+                        >
+                          <strong style={{ color: colors.title, fontSize: "13px" }}>{item.title}</strong>
+                          <span style={{ color: colors.text, fontSize: "12px", marginTop: "4px" }}>
+                            {WEEKDAYS[item.day - 1]} {item.startTime}-{item.endTime} · {item.courseName}
+                          </span>
+                          <span style={{ color: item.completedAt ? colors.success : colors.text, fontSize: "12px", marginTop: "4px" }}>
+                            {item.completedAt ? "已完成" : "未完成"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={compactToolCardStyle(colors)}>
+                  <strong style={{ color: colors.title, fontSize: "14px" }}>调整选中复习块</strong>
+                  {studyBlockDraft ? (
+                    <form onSubmit={saveStudyBlockDraft} style={{ ...studyEditFormStyle(colors), marginTop: "12px" }}>
+                      <label style={fieldStyle(colors)}>
+                        <span>复习块标题</span>
+                        <input
+                          value={studyBlockDraft.title}
+                          onChange={(event) => updateStudyBlockDraft({ title: event.target.value })}
+                          style={inputStyle(colors)}
+                        />
+                      </label>
+                      <label style={fieldStyle(colors)}>
+                        <span>星期</span>
+                        <select
+                          value={studyBlockDraft.day}
+                          onChange={(event) => updateStudyBlockDraft({ day: event.target.value })}
+                          style={inputStyle(colors)}
+                        >
+                          {WEEKDAYS.map((label, index) => (
+                            <option key={label} value={index + 1}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                        <label style={fieldStyle(colors)}>
+                          <span>开始</span>
+                          <input
+                            type="time"
+                            value={studyBlockDraft.startTime}
+                            onChange={(event) => updateStudyBlockDraft({ startTime: event.target.value })}
+                            style={inputStyle(colors)}
+                          />
+                        </label>
+                        <label style={fieldStyle(colors)}>
+                          <span>结束</span>
+                          <input
+                            type="time"
+                            value={studyBlockDraft.endTime}
+                            onChange={(event) => updateStudyBlockDraft({ endTime: event.target.value })}
+                            style={inputStyle(colors)}
+                          />
+                        </label>
+                      </div>
+                      <div style={importActionRowStyle}>
+                        <button type="submit" style={primaryButtonStyle(colors)}>
+                          保存调整
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteStudyPlanBlock(studyBlockDraft.id)}
+                          style={outlineButtonStyle(colors)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p style={panelTextStyle(colors)}>选择左侧复习块后再进行调整。</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
         </div>
       </main>
       </div>
@@ -1206,15 +1308,49 @@ function SchedulePage({ user = null, onLogout } = {}) {
   );
 }
 
+function ScheduleToolButton({ colors, active, label, meta, onClick }) {
+  return (
+    <button type="button" onClick={onClick} style={scheduleToolButtonStyle(colors, active)}>
+      <span style={{ color: active ? "#FFFFFF" : colors.title, fontSize: "13px", fontWeight: 900 }}>
+        {label}
+      </span>
+      <span style={{ color: active ? "rgba(255,255,255,0.78)" : colors.text, fontSize: "11px" }}>
+        {meta}
+      </span>
+    </button>
+  );
+}
+
+function ReadinessChip({ colors, active, label, warning = false }) {
+  return (
+    <span style={readinessChipStyle(colors, active, warning)}>
+      <span
+        aria-hidden="true"
+        style={{
+          width: "6px",
+          height: "6px",
+          borderRadius: "999px",
+          background: warning ? colors.warningText : active ? colors.success : colors.muted,
+          flexShrink: 0,
+        }}
+      />
+      {label}
+    </span>
+  );
+}
+
 function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone }) {
   const start = clampStartMinutes(timeToMinutes(item.startTime));
   const end = clampMinutes(timeToMinutes(item.endTime));
   const top = ((start - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-  const height = Math.max(24, ((end - start) / 60) * HOUR_HEIGHT);
+  const height = Math.max(30, ((end - start) / 60) * HOUR_HEIGHT);
+  const isCompact = height < 46;
   const isDdl = type === "ddl";
   const isStudy = type === "study";
   const isExam = type === "exam";
   const isDone = Boolean(item.completedAt);
+  const detailText = item.location || item.courseName || "固定时间";
+  const metaText = buildClassMetaText(item, { includeLocation: false });
   const blockBg = isDdl ? colors.ddlBg : isExam ? colors.examBg : isStudy ? colors.studyBg : colors.classBg;
   const blockBorder = isDdl
     ? colors.warningBorder
@@ -1239,12 +1375,12 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
       }}
       style={{
         position: "absolute",
-        left: "4px",
-        right: "4px",
+        left: "5px",
+        right: "5px",
         top,
-        minHeight: height,
-        borderRadius: "9px",
-        padding: "4px 6px",
+        height,
+        borderRadius: "10px",
+        padding: isCompact ? "5px 7px" : "6px 8px",
         boxSizing: "border-box",
         background: blockBg,
         border: `1px solid ${blockBorder}`,
@@ -1255,42 +1391,60 @@ function ScheduleBlock({ item, colors, type, onDelete, onSelect, onToggleDone })
         opacity: isDone ? 0.68 : 1,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
-        <strong style={{ fontSize: "11px", lineHeight: 1.2, textDecoration: isDone ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</strong>
-        {onToggleDone && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleDone();
-            }}
-            style={blockDoneStyle(colors, isDone)}
-          >
-            {isDone ? "✓" : "○"}
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
-            style={blockDeleteStyle(colors)}
-          >
-            ×
-          </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "5px" }}>
+        <strong
+          style={{
+            minWidth: 0,
+            fontSize: "11px",
+            lineHeight: 1.25,
+            textDecoration: isDone ? "line-through" : "none",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {item.title}
+        </strong>
+        {(onToggleDone || onDelete) && (
+          <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
+            {onToggleDone && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleDone();
+                }}
+                style={blockDoneStyle(colors, isDone)}
+              >
+                {isDone ? "✓" : "○"}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete();
+                }}
+                style={blockDeleteStyle(colors)}
+              >
+                ×
+              </button>
+            )}
+          </div>
         )}
       </div>
-      <div style={{ fontSize: "10px", marginTop: "3px", opacity: 0.86, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={{ fontSize: "10px", marginTop: isCompact ? "2px" : "4px", opacity: 0.86, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {item.startTime} - {item.endTime}
       </div>
-      <div style={{ fontSize: "10px", marginTop: "2px", opacity: 0.78, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {item.location || item.courseName || "固定时间"}
-      </div>
-      {buildClassMetaText(item, { includeLocation: false }) && (
+      {!isCompact && (
         <div style={{ fontSize: "10px", marginTop: "2px", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {buildClassMetaText(item, { includeLocation: false })}
+          {detailText}
+        </div>
+      )}
+      {height >= 58 && metaText && (
+        <div style={{ fontSize: "10px", marginTop: "2px", opacity: 0.68, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {metaText}
         </div>
       )}
     </div>
@@ -1716,6 +1870,165 @@ function hasNjuScheduleBridge() {
   );
 }
 
+
+function toolDockStyle(colors) {
+  return {
+    minWidth: 0,
+    background: colors.shell,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "18px",
+    padding: "12px",
+    boxShadow: "0 10px 28px rgba(15,42,74,0.05)",
+  };
+}
+
+const toolDockHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "14px",
+  flexWrap: "wrap",
+};
+
+const toolButtonGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(112px, 1fr))",
+  gap: "8px",
+  minWidth: "min(100%, 500px)",
+  flex: "1 1 500px",
+};
+
+function scheduleToolButtonStyle(colors, active) {
+  return {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: "2px",
+    border: `1px solid ${active ? colors.active : colors.border}`,
+    borderRadius: "12px",
+    background: active ? colors.active : colors.panel,
+    padding: "9px 12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textAlign: "left",
+    overflow: "hidden",
+  };
+}
+
+function readinessStripStyle(colors) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    flexWrap: "wrap",
+    marginTop: "10px",
+    paddingTop: "10px",
+    borderTop: `1px solid ${colors.border}`,
+  };
+}
+
+function readinessChipStyle(colors, active, warning) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    minWidth: 0,
+    border: `1px solid ${warning ? colors.warningBorder : colors.border}`,
+    borderRadius: "999px",
+    background: warning ? colors.warningBg : active ? colors.successBg : colors.card,
+    color: warning ? colors.warningText : colors.text,
+    padding: "5px 9px",
+    fontSize: "11px",
+    whiteSpace: "nowrap",
+  };
+}
+
+function toolDrawerStyle(colors) {
+  return {
+    marginTop: "12px",
+    borderTop: `1px solid ${colors.border}`,
+    paddingTop: "12px",
+  };
+}
+
+const toolDrawerHeaderStyle = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "12px",
+};
+
+function toolDrawerTitleStyle(colors) {
+  return {
+    margin: 0,
+    color: colors.title,
+    fontSize: "17px",
+    fontWeight: 900,
+  };
+}
+
+function toolDrawerTextStyle(colors) {
+  return {
+    margin: "4px 0 0",
+    color: colors.text,
+    fontSize: "12px",
+    lineHeight: 1.6,
+  };
+}
+
+function toolCloseButtonStyle(colors) {
+  return {
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
+    background: colors.panel,
+    color: colors.text,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    padding: "7px 10px",
+    whiteSpace: "nowrap",
+  };
+}
+
+const toolDrawerGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: "12px",
+};
+
+function compactToolCardStyle(colors) {
+  return {
+    minWidth: 0,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "14px",
+    background: colors.panel,
+    padding: "13px",
+  };
+}
+
+const compactFormGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: "12px",
+  alignItems: "end",
+};
+
+const compactListStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: "9px",
+  marginTop: "12px",
+};
+
+const planWorkspaceStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: "12px",
+  marginTop: "12px",
+};
+
 const pageGridStyle = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
@@ -1733,7 +2046,7 @@ const calendarHeaderStyle = {
 
 const statsGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
   gap: "8px",
   marginBottom: "10px",
 };
@@ -1870,7 +2183,7 @@ function dayColumnStyle(colors) {
 
 function dayHeaderStyle(colors, active) {
   return {
-    height: "34px",
+    height: `${DAY_HEADER_HEIGHT}px`,
     display: "grid",
     placeItems: "center",
     gap: "2px",
@@ -1903,7 +2216,7 @@ function statCardStyle(colors) {
     background: colors.panel,
     border: `1px solid ${colors.border}`,
     borderRadius: "12px",
-    padding: "10px 12px",
+    padding: "8px 10px",
     minWidth: 0,
   };
 }
@@ -2058,9 +2371,13 @@ function blockDeleteStyle(colors) {
     background: "transparent",
     color: colors.activeText,
     cursor: "pointer",
-    fontSize: "15px",
+    fontSize: "14px",
     lineHeight: 1,
     padding: 0,
+    width: "18px",
+    height: "18px",
+    display: "grid",
+    placeItems: "center",
   };
 }
 
@@ -2071,8 +2388,8 @@ function blockDoneStyle(colors, done) {
     color: done ? colors.success : colors.text,
     cursor: "pointer",
     borderRadius: "999px",
-    width: "20px",
-    height: "20px",
+    width: "18px",
+    height: "18px",
     display: "grid",
     placeItems: "center",
     flexShrink: 0,

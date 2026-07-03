@@ -40,27 +40,52 @@ export async function getCurrentUser() {
 }
 
 export async function updateProfile({ name }) {
-  const user = await request("/api/auth/me", {
-    method: "PATCH",
-    body: {
-      name,
-    },
-  });
+  const body = { name };
+  let user;
+
+  try {
+    user = await request("/api/auth/me", {
+      method: "PATCH",
+      body,
+    });
+  } catch (error) {
+    if (!isMethodNotAllowed(error)) throw error;
+
+    user = await request("/api/auth/profile", {
+      method: "POST",
+      body,
+    });
+  }
 
   saveUser(user);
   return user;
 }
 
 export async function changePassword({ currentPassword, newPassword }) {
-  return request("/api/auth/password", {
-    method: "POST",
-    body: {
-      currentPassword,
-      newPassword,
-    },
-  });
+  const body = {
+    currentPassword,
+    newPassword,
+  };
+
+  try {
+    return await request("/api/auth/password", {
+      method: "POST",
+      body,
+    });
+  } catch (error) {
+    if (!isMethodNotAllowed(error)) throw error;
+
+    return request("/api/auth/password", {
+      method: "PUT",
+      body,
+    });
+  }
 }
 
 export function logoutAccount() {
   clearAuthSession();
+}
+
+function isMethodNotAllowed(error) {
+  return /method not allowed|405/i.test(error?.message || "");
 }

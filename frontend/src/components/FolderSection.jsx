@@ -9,6 +9,7 @@ function FolderSection({
   onAddCourse,
   onStarCourse,
   onDeleteCourse,
+  onRenameCourse,
   onRestoreCourse,
   onPermanentDeleteCourse,
   onDeleteFolder,
@@ -22,9 +23,9 @@ function FolderSection({
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const menuRef = useRef(null);
 
-  const text = darkMode ? "#4B4762" : "#183B63";
-  const subText = darkMode ? "#6F698C" : "#94A3B8";
-  const border = darkMode ? "rgba(139,132,174,0.25)" : "#CBD5E1";
+  const text = darkMode ? "#F8FAFC" : "#183B63";
+  const subText = darkMode ? "#94A3B8" : "#64748B";
+  const border = darkMode ? "rgba(148,163,184,0.22)" : "#CBD5E1";
   const menuBackground = darkMode ? "rgba(30,41,59,0.96)" : "rgba(255,255,255,0.96)";
   const menuBorder = darkMode ? "rgba(148,163,184,0.2)" : "rgba(203,213,225,0.88)";
   const menuShadow = darkMode
@@ -73,7 +74,7 @@ function FolderSection({
           <h2
             style={{
               margin: 0,
-              fontSize: "22px",
+              fontSize: "20px",
               fontWeight: 600,
               color: text,
               letterSpacing: "-0.02em",
@@ -164,27 +165,40 @@ function FolderSection({
       {courses.length === 0 ? (
         <div
           style={{
-            height: "96px",
+            minHeight: "112px",
             border: `1px dashed ${border}`,
             borderRadius: "14px",
             color: subText,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            background: darkMode ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.45)",
-            fontSize: "14px",
+            gap: "8px",
+            background: darkMode ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.48)",
+            fontSize: "13px",
           }}
         >
-          暂无课程
+          <span>{isTrash ? "回收站中暂无课程" : "这个文件夹还是空的"}</span>
+          {canAddCourse && !isTrash && (
+            <button
+              type="button"
+              onClick={() => onAddCourse(folderId)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: darkMode ? "#A5B4FC" : "#2563EB",
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: 700,
+                padding: "4px 8px",
+              }}
+            >
+              添加第一门课程
+            </button>
+          )}
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))",
-            gap: "18px",
-          }}
-        >
+        <div className="course-grid">
           {courses.map((course) => (
             <CourseCard
               key={course.id}
@@ -196,6 +210,7 @@ function FolderSection({
               resourceCount={course.resourceCount}
               onStar={onStarCourse}
               onDelete={onDeleteCourse}
+              onRename={onRenameCourse}
               onRestore={onRestoreCourse}
               onPermanentDelete={onPermanentDeleteCourse}
               isTrash={isTrash}

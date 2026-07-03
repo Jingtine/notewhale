@@ -1775,11 +1775,17 @@ function CourseHeader({
   const headerResourceInputRef = useRef(null);
   const pendingCount = activeDdls.length;
   const syncLabel = course?.backendSynced ? "云端同步" : "本地课程";
+  const resourceReadyCount = courseResources.filter(isResourceReadyForAi).length;
+  const quickStatus = pendingCount > 0
+    ? `${pendingCount} 个 DDL 待处理`
+    : resourceReadyCount > 0
+      ? `${resourceReadyCount} 份资料可生成笔记`
+      : "课程空间已就绪";
   const nextAction =
     activeTab === "notes"
       ? "新建笔记"
       : activeTab === "ddl"
-        ? "新建日程"
+        ? "安排 DDL"
         : "上传资料";
 
   function runPrimaryAction() {
@@ -1795,84 +1801,24 @@ function CourseHeader({
   }
 
   return (
-    <div style={{ padding: "24px 28px 18px" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) auto",
-          alignItems: "start",
-          gap: "22px",
-        }}
-      >
+    <div style={courseHeaderStyle(colors)}>
+      <div style={courseHeaderMainStyle}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                height: "26px",
-                padding: "0 10px",
-                borderRadius: "999px",
-                background: colors.soft,
-                border: `1px solid ${colors.border}`,
-                color: colors.active,
-                fontSize: "12px",
-                fontWeight: 800,
-              }}
-            >
-              {syncLabel}
+          <div style={courseStatusRowStyle}>
+            <span style={coursePillStyle(colors, "active")}>{syncLabel}</span>
+            <span style={coursePillStyle(colors, pendingCount > 0 ? "danger" : "success")}>
+              {quickStatus}
             </span>
-            {pendingCount > 0 && (
-              <span
-                style={{
-                  color: colors.danger,
-                  fontSize: "13px",
-                  fontWeight: 800,
-                }}
-              >
-                {pendingCount} 个 DDL 待处理
-              </span>
-            )}
           </div>
-
-          <h1
-            style={{
-              margin: "12px 0 0",
-              color: colors.title,
-              fontSize: "30px",
-              lineHeight: 1.15,
-              fontWeight: 900,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {course?.title || "课程空间"}
-          </h1>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(108px, 148px))",
-              gap: "10px",
-              marginTop: "18px",
-            }}
-          >
-            <CourseMetric label="资料" value={courseResources.length} colors={colors} />
-            <CourseMetric label="笔记" value={courseNotes.length} colors={colors} />
-            <CourseMetric label="待办" value={pendingCount} colors={colors} />
+          <h1 style={courseTitleStyle(colors)}>{course?.title || "课程空间"}</h1>
+          <div style={courseInlineStatsStyle(colors)}>
+            <span>{courseResources.length} 份资料</span>
+            <span>{courseNotes.length} 条笔记</span>
+            <span>{pendingCount} 个待办</span>
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "10px",
-            flexWrap: "wrap",
-            maxWidth: "360px",
-          }}
-        >
+        <div style={courseActionRowStyle}>
           <button type="button" onClick={runPrimaryAction} style={primaryButton(colors)}>
             ＋ {nextAction}
           </button>
@@ -1900,28 +1846,8 @@ function CourseHeader({
         </div>
       </div>
 
-      <div
-        style={{
-          marginTop: "22px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          borderTop: `1px solid ${colors.border}`,
-          paddingTop: "16px",
-        }}
-      >
-        <nav
-          style={{
-            display: "inline-grid",
-            gridTemplateColumns: "repeat(4, minmax(72px, 1fr))",
-            gap: "4px",
-            padding: "4px",
-            border: `1px solid ${colors.border}`,
-            borderRadius: "14px",
-            background: colors.soft,
-          }}
-        >
+      <div style={courseTabBarWrapStyle(colors)}>
+        <nav style={courseTabNavStyle(colors)}>
           <TopTab
             label="资料"
             active={activeTab === "resources"}
@@ -1948,27 +1874,6 @@ function CourseHeader({
           />
         </nav>
       </div>
-    </div>
-  );
-}
-
-function CourseMetric({ label, value, colors }) {
-  return (
-    <div
-      style={{
-        minWidth: 0,
-        border: `1px solid ${colors.border}`,
-        background: colors.card,
-        borderRadius: "14px",
-        padding: "10px 12px",
-      }}
-    >
-      <span style={{ display: "block", color: colors.text, fontSize: "12px", fontWeight: 800 }}>
-        {label}
-      </span>
-      <strong style={{ display: "block", color: colors.title, fontSize: "20px", marginTop: "3px" }}>
-        {value}
-      </strong>
     </div>
   );
 }
@@ -2051,12 +1956,12 @@ function ResourceTab({
 
   return (
     <div style={contentCardStyle(colors)}>
-      <div style={panelHeaderStyle}>
+      <div style={resourcePanelHeaderStyle(colors)}>
         <div>
           <h2 style={{ ...sectionTitleStyle(colors), margin: 0 }}>课程资料</h2>
         </div>
 
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <div style={resourceToolbarStyle}>
           <label style={selectWrapStyle(colors)}>
             <span style={{ color: colors.text, fontSize: "13px", fontWeight: 700 }}>风格</span>
             <select
@@ -2123,7 +2028,7 @@ function ResourceTab({
           text={searchText ? "没有找到匹配的课程资料。" : "暂无课程资料，可上传 PPT、PDF、讲义、教材或录音。"}
         />
       ) : (
-        <div style={{ display: "grid", gap: "12px" }}>
+        <div style={resourceListStyle}>
           {resources.map((resource) => (
             <ResourceItem
               key={resource.id}
@@ -2158,56 +2063,54 @@ function ResourceItem({
   const canGenerateNote = isResourceReadyForAi(resource);
   const aiButtonDisabled = hasGeneratingResource || !canGenerateNote;
   const textStatus = getResourceTextStatus(resource);
+  const createdAt = new Date(resource.createdAt).toLocaleDateString();
+  const wordText = resource.extractedTextLength ? `${resource.extractedTextLength} 字` : textStatus.label;
 
   return (
-    <div style={compactRowStyle(colors)}>
-      <div style={{ display: "flex", gap: "14px", minWidth: 0, flex: 1 }}>
+    <article style={resourceAssetRowStyle(colors)}>
+      <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
         <div style={fileBadgeStyle(colors)}>{resource.type}</div>
-
         <div style={{ minWidth: 0 }}>
           <h3
             style={{
               margin: 0,
               color: colors.title,
-              fontSize: "15px",
-              fontWeight: 700,
+              fontSize: "16px",
+              fontWeight: 800,
               wordBreak: "break-all",
+              lineHeight: 1.3,
             }}
           >
             {resource.name}
           </h3>
-
-          <p style={{ margin: "6px 0 0", color: colors.text, fontSize: "13px" }}>
-            {formatFileSize(resource.size)} · {new Date(resource.createdAt).toLocaleDateString()}
-            {relatedNotes.length > 0 ? ` · 已生成 ${relatedNotes.length} 条笔记` : ""}
-            {!isSynced ? " · 本地临时资料" : ""}
-          </p>
-
-          <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <StatusTag colors={colors} text={textStatus.label} tone={textStatus.tone} />
-            {textStatus.detail && <span style={{ color: colors.muted, fontSize: "12px" }}>{textStatus.detail}</span>}
+          <div style={resourceMetaLineStyle(colors)}>
+            <span>{formatFileSize(resource.size)}</span>
+            <span>{createdAt}</span>
+            <span>{isSynced ? "云端资料" : "本地临时"}</span>
+            <span>{wordText}</span>
+            {relatedNotes.length > 0 && <span>{relatedNotes.length} 条笔记</span>}
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
-        <button onClick={() => onView(resource)} style={ghostButton(colors)}>
+      <div style={resourceActionRowStyle}>
+        <button onClick={() => onView(resource)} style={secondaryButton(colors)}>
           查看
         </button>
         <button
           onClick={() => onGenerateNote(resource)}
-          style={disabledButtonStyle(miniButton(colors.active), aiButtonDisabled)}
+          style={disabledButtonStyle(primaryButton(colors), aiButtonDisabled)}
           disabled={aiButtonDisabled}
           aria-busy={isGenerating}
           title={!canGenerateNote ? textStatus.detail : undefined}
         >
           {isGenerating ? "生成中" : canGenerateNote ? "AI笔记" : isSynced ? "无文字" : "未同步"}
         </button>
-        <button onClick={() => onDelete(resource)} style={miniButton(colors.danger)}>
+        <button onClick={() => onDelete(resource)} style={dangerSoftButtonStyle(colors)}>
           删除
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -3202,6 +3105,140 @@ function courseShellStyle(colors, darkMode) {
   };
 }
 
+function courseHeaderStyle(colors) {
+  return {
+    padding: "26px 28px 18px",
+    background: colors.card,
+  };
+}
+
+const courseHeroGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 360px)",
+  alignItems: "stretch",
+  gap: "18px",
+};
+
+function courseIdentityStyle(colors) {
+  return {
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: "18px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "18px",
+    background: colors.soft,
+    padding: "18px",
+  };
+}
+
+function courseMarkStyle(colors) {
+  return {
+    width: "68px",
+    height: "68px",
+    borderRadius: "18px",
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    color: "#FFFFFF",
+    background: colors.active,
+    boxShadow: "0 18px 36px rgba(37,99,235,0.18)",
+    fontSize: "28px",
+    fontWeight: 900,
+  };
+}
+
+const courseStatusRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
+function coursePillStyle(colors, tone = "active") {
+  const color =
+    tone === "success"
+      ? colors.success
+      : tone === "danger"
+        ? colors.danger
+        : colors.active;
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: "26px",
+    borderRadius: "999px",
+    border: `1px solid ${color}22`,
+    background: `${color}12`,
+    color,
+    padding: "0 10px",
+    fontSize: "12px",
+    fontWeight: 900,
+  };
+}
+
+function courseTitleStyle(colors) {
+  return {
+    margin: "10px 0 0",
+    color: colors.title,
+    fontSize: "30px",
+    lineHeight: 1.12,
+    fontWeight: 900,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
+const courseHeaderMainStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "18px",
+  flexWrap: "wrap",
+};
+
+function courseInlineStatsStyle(colors) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+    marginTop: "12px",
+    color: colors.text,
+    fontSize: "13px",
+  };
+}
+
+const courseActionRowStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  maxWidth: "520px",
+};
+
+function courseTabBarWrapStyle(colors) {
+  return {
+    marginTop: "18px",
+    borderTop: `1px solid ${colors.border}`,
+    paddingTop: "14px",
+  };
+}
+
+function courseTabNavStyle(colors) {
+  return {
+    display: "inline-grid",
+    gridTemplateColumns: "repeat(4, minmax(78px, 1fr))",
+    gap: "4px",
+    padding: "4px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "14px",
+    background: colors.soft,
+  };
+}
+
 function contentCardStyle(colors) {
   return {
     background: colors.card,
@@ -3228,6 +3265,72 @@ function compactRowStyle(colors) {
 function sectionTitleStyle(colors) {
   return { margin: "0 0 18px", color: colors.title, fontSize: "22px", fontWeight: 800 };
 }
+
+function sectionHintStyle(colors) {
+  return {
+    margin: "7px 0 0",
+    color: colors.text,
+    fontSize: "13px",
+    lineHeight: 1.6,
+  };
+}
+
+function resourcePanelHeaderStyle(colors) {
+  return {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "18px",
+    alignItems: "flex-start",
+    marginBottom: "18px",
+  };
+}
+
+const resourceToolbarStyle = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+};
+
+const resourceListStyle = {
+  display: "grid",
+  gap: "10px",
+};
+
+function resourceAssetRowStyle(colors) {
+  return {
+    minWidth: 0,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+    background: colors.soft,
+    border: `1px solid ${colors.border}`,
+    borderRadius: "16px",
+    padding: "16px",
+    flexWrap: "wrap",
+  };
+}
+
+function resourceMetaLineStyle(colors) {
+  return {
+    marginTop: "7px",
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    flexWrap: "wrap",
+    color: colors.text,
+    fontSize: "12px",
+  };
+}
+
+const resourceActionRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "8px",
+  flexWrap: "wrap",
+};
 
 function fileBadgeStyle(colors) {
   return {
@@ -3403,6 +3506,20 @@ function resourcePreviewAreaStyle(colors) {
     justifyContent: "center",
     padding: "20px",
     boxSizing: "border-box",
+  };
+}
+
+function dangerSoftButtonStyle(colors) {
+  return {
+    border: `1px solid ${colors.danger}2B`,
+    background: `${colors.danger}10`,
+    color: colors.danger,
+    borderRadius: "12px",
+    padding: "10px 16px",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontFamily: "inherit",
+    fontWeight: 800,
   };
 }
 

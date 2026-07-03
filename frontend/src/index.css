@@ -16,6 +16,70 @@ body {
   background: #f5f9ff;
   overflow: hidden;
 }
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.24);
+  outline-offset: 2px;
+}
+
+.home-workspace-grid {
+  grid-template-columns: minmax(0, 1fr) 344px;
+}
+
+.home-overview-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+
+.home-overview-copy {
+  min-width: 0;
+}
+
+.home-overview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.home-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(94px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  max-width: 420px;
+}
+
+.home-summary-item {
+  min-width: 0;
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+  gap: 16px;
+}
+
+.course-card:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.22);
+  outline-offset: 3px;
+}
+
 /* 全局滚动条优化 */
 ::-webkit-scrollbar {
   width: 8px;
@@ -39,8 +103,158 @@ body {
   background-clip: content-box;
 }
 
-/* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+@media (max-width: 1180px) {
+  .home-workspace-grid {
+    display: block !important;
+    overflow-y: auto !important;
+  }
+
+  .home-main-content,
+  .home-ddl-aside {
+    overflow: visible !important;
+  }
+
+  .home-ddl-aside {
+    width: auto !important;
+    border-left: 0 !important;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+  }
+}
+
+@media (max-width: 900px) {
+  .home-overview-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .home-overview-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .home-summary-grid {
+    max-width: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .home-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* 设置页：避免桌面窗口缩放后卡片、URL 和模型名横向溢出 */
+.settings-modal {
+  width: min(1180px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  overflow-x: hidden !important;
+}
+
+.settings-modal-header,
+.settings-layout,
+.settings-nav,
+.settings-content,
+.ai-provider-card,
+.ai-provider-header,
+.ai-provider-grid,
+.ai-provider-option,
+.ai-settings-input {
+  min-width: 0;
+}
+
+.settings-layout {
+  display: grid !important;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) !important;
+  align-items: start !important;
+}
+
+.settings-nav {
+  width: auto !important;
+  position: sticky;
+  top: 0;
+}
+
+.settings-content {
+  width: 100%;
+  overflow: hidden;
+}
+
+.ai-provider-header > div {
+  min-width: 0;
+}
+
+.ai-provider-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.ai-provider-option {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ai-provider-option strong,
+.ai-provider-option span,
+.ai-provider-backend-status {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ai-settings-input {
+  width: 100%;
+  max-width: 100%;
+}
+
+img,
+video,
+iframe,
+canvas {
+  max-width: 100%;
+}
+
+pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 900px) {
+  .settings-modal {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    padding: 18px !important;
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .settings-nav {
+    position: static !important;
+  }
+}
+
+@media (max-width: 660px) {
+  .settings-modal-header,
+  .ai-provider-header {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .ai-provider-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }

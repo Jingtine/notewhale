@@ -208,6 +208,12 @@ function getDesktopBackendPaths() {
   };
 }
 
+function getBackendDir() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "backend")
+    : path.join(__dirname, "..", "..", "backend");
+}
+
 function loadApplication() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -240,11 +246,59 @@ function checkBackendHealth(timeoutMs = 1200) {
   });
 }
 
+function fetchJson(url, timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const request = http.get(url, { timeout: timeoutMs }, (response) => {
+      let body = "";
+
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        if (response.statusCode < 200 || response.statusCode >= 500) {
+          resolve(null);
+          return;
+        }
+
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+
+    request.on("timeout", () => {
+      request.destroy();
+      resolve(null);
+    });
+    request.on("error", () => resolve(null));
+  });
+}
+
+async function checkBackendCapabilities(timeoutMs = 1200) {
+  const schema = await fetchJson(`${BACKEND_URL}/openapi.json`, timeoutMs);
+  const paths = schema?.paths || {};
+  const authMeMethods = paths["/api/auth/me"] || {};
+  const passwordMethods = paths["/api/auth/password"] || {};
+
+  return Boolean(
+    (authMeMethods.patch || authMeMethods.put) &&
+      (passwordMethods.post || passwordMethods.put || passwordMethods.patch),
+  );
+}
+
+async function checkBackendReady(timeoutMs = 1200) {
+  if (!(await checkBackendHealth(timeoutMs))) return false;
+  return checkBackendCapabilities(timeoutMs);
+}
+
 async function waitForBackendReady(timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    if (await checkBackendHealth(800)) {
+    if (await checkBackendReady(800)) {
       return true;
     }
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -254,7 +308,7 @@ async function waitForBackendReady(timeoutMs = 8000) {
 }
 
 async function startLocalBackend() {
-  if (await checkBackendHealth()) {
+  if (await checkBackendReady()) {
     updateBackendStatus({
       state: "ready",
       managed: false,
@@ -265,7 +319,19 @@ async function startLocalBackend() {
     return;
   }
 
-  const backendDir = path.join(__dirname, "..", "..", "backend");
+  if (await checkBackendHealth()) {
+    updateBackendStatus({
+      state: "missing",
+      managed: false,
+      url: BACKEND_URL,
+      dataDir: "",
+      message:
+        "127.0.0.1:8000 正在运行旧版后端，缺少账号资料/密码接口。请关闭旧后端后重新启动桌面版。",
+    });
+    return;
+  }
+
+  const backendDir = getBackendDir();
   const pythonPath = path.join(backendDir, ".venv", "Scripts", "python.exe");
   const desktopPaths = getDesktopBackendPaths();
 
@@ -507,7 +573,7 @@ ipcMain.handle("nju-schedule:import", async (_event, config = {}) => {
 });
 
 ipcMain.handle("backend:status", async () => {
-  const healthy = await checkBackendHealth();
+  const healthy = await checkBackendReady();
 
   if (healthy && backendStatus.state !== "ready") {
     updateBackendStatus({

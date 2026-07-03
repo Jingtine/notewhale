@@ -49,8 +49,8 @@ describe("NJU schedule extractor bridge", () => {
     assert.equal(classes[0].id, "test-0");
     assert.equal(classes[0].title, "高等数学");
     assert.equal(classes[0].day, 3);
-    assert.equal(classes[0].startTime, "08:55");
-    assert.equal(classes[0].endTime, "11:40");
+    assert.equal(classes[0].startTime, "09:00");
+    assert.equal(classes[0].endTime, "12:00");
     assert.equal(classes[0].teacher, "张三");
     assert.equal(classes[0].classNumber, "MATH001");
     assert.deepEqual(classes[0].weeks, [14, 15, 16, 17, 18]);

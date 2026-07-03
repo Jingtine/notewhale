@@ -627,6 +627,8 @@ def me(current_user: User = Depends(get_current_user)):
 
 
 @app.patch("/api/auth/me")
+@app.put("/api/auth/me")
+@app.post("/api/auth/profile")
 def update_me(
     payload: UserProfileUpdate,
     db: Session = Depends(get_db),
@@ -647,6 +649,8 @@ def update_me(
 
 
 @app.post("/api/auth/password")
+@app.put("/api/auth/password")
+@app.patch("/api/auth/password")
 def change_password(
     payload: PasswordChangeRequest,
     db: Session = Depends(get_db),

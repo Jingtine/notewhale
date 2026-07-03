@@ -56,6 +56,16 @@ function createLocalId() {
   return Date.now();
 }
 
+function getGreetingText(date = new Date()) {
+  const hour = date.getHours();
+
+  if (hour < 6) return "夜深了";
+  if (hour < 9) return "早上好";
+  if (hour < 12) return "上午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
 function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [selectedFolder, setSelectedFolder] = useState("全部");
   const [searchText, setSearchText] = useState("");
@@ -109,6 +119,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [aiModelSettings, setAiModelSettingsState] = useState(() =>
     readAiModelSettings()
   );
+  const [greetingText, setGreetingText] = useState(() => getGreetingText());
 
   useEffect(() => {
     const section = location.state?.openSettingsSection;
@@ -123,6 +134,14 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
     return () => window.clearTimeout(timer);
   }, [location.state, navigate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setGreetingText(getGreetingText());
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renamingCourse, setRenamingCourse] = useState(null);
@@ -1305,7 +1324,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                       letterSpacing: "-0.03em",
                     }}
                   >
-                    下午好，{currentUser.name || "鲸记用户"}
+                    {greetingText}，{currentUser.name || "鲸记用户"}
                   </h1>
 
                   <p

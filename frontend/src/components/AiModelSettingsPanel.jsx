@@ -165,6 +165,7 @@ function ProviderCard({
 
   return (
     <section
+      className="ai-provider-card"
       style={{
         border: `1px solid ${colors.border}`,
         borderRadius: "16px",
@@ -172,7 +173,7 @@ function ProviderCard({
         padding: compact ? "16px" : "18px",
       }}
     >
-      <div style={providerHeaderStyle}>
+      <div className="ai-provider-header" style={providerHeaderStyle}>
         <div>
           <h3 style={{ margin: 0, color: colors.title, fontSize: "16px" }}>
             {title}
@@ -184,10 +185,11 @@ function ProviderCard({
         <span style={statusPillStyle(statusColor)}>{statusText}</span>
       </div>
 
-      <div style={modeGridStyle}>
+      <div className="ai-provider-grid" style={modeGridStyle}>
         <button
           type="button"
           onClick={() => onChange(provider, { enabled: false })}
+          className="ai-provider-option"
           style={presetButtonStyle(colors, !enabled)}
         >
           <strong>后端默认</strong>
@@ -198,6 +200,7 @@ function ProviderCard({
             key={preset.id}
             type="button"
             onClick={() => applyPreset(preset)}
+            className="ai-provider-option"
             style={presetButtonStyle(colors, enabled && activePreset === preset.id)}
           >
             <strong>{preset.label}</strong>
@@ -263,7 +266,7 @@ function ProviderCard({
       )}
 
       {status && (
-        <div style={{ marginTop: "12px", color: colors.muted, fontSize: "12px", lineHeight: 1.6 }}>
+        <div className="ai-provider-backend-status" style={{ marginTop: "12px", color: colors.muted, fontSize: "12px", lineHeight: 1.6 }}>
           后端默认：{status.host || "未配置"} · {status.model || "未配置"}
         </div>
       )}
@@ -322,12 +325,16 @@ function SettingsInput({ label, value, onChange, colors, disabled, placeholder, 
     <label style={{ display: "grid", gap: "6px" }}>
       <span style={{ color: colors.text, fontSize: "12px", fontWeight: 800 }}>{label}</span>
       <input
+        className="ai-settings-input"
         type={type}
         value={value}
         disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         style={{
+          width: "100%",
+          minWidth: 0,
+          maxWidth: "100%",
           height: "40px",
           borderRadius: "10px",
           border: `1px solid ${colors.border}`,
@@ -348,12 +355,13 @@ const providerHeaderStyle = {
   justifyContent: "space-between",
   gap: "16px",
   alignItems: "flex-start",
+  flexWrap: "wrap",
   marginBottom: "14px",
 };
 
 const modeGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: "10px",
   marginBottom: "12px",
 };
@@ -382,6 +390,10 @@ function presetButtonStyle(colors, active) {
   return {
     display: "grid",
     gap: "5px",
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    overflow: "hidden",
     minHeight: "62px",
     border: `1px solid ${active ? colors.active : colors.border}`,
     borderRadius: "12px",

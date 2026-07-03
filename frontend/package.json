@@ -1,16 +1,66 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
+  "description": "NoteWhale desktop learning workspace",
+  "author": "CH4 Team",
+  "main": "electron/main.cjs",
+  "productName": "NoteWhale",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "desktop": "npm run build && electron electron/main.cjs",
     "desktop:dev": "electron electron/main.cjs",
+    "dist": "npm run build && electron-builder --win nsis",
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test src/data/learningItemMappers.test.js src/data/courseFolderStore.test.js src/data/userStorage.test.js src/data/resourceMappers.test.js src/data/courseMetrics.test.js src/data/globalSearch.test.js src/data/homeFolderView.test.js src/data/aiModelSettings.test.js src/data/scheduleImport.test.js src/data/njuScheduleExtractor.test.js src/data/schedulePlanner.test.js",
     "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.notewhale.desktop",
+    "productName": "NoteWhale",
+    "electronVersion": "37.10.3",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!uploads/**",
+          "!notewhale.db"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NoteWhale"
+    }
   },
   "dependencies": {
     "katex": "^0.17.0",
@@ -25,6 +75,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^37.2.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

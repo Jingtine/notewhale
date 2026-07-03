@@ -13,7 +13,7 @@ describe("schedule import parser", () => {
     assert.deepEqual(result.classes.map((item) => item.title), ["高等数学", "大学英语"]);
     assert.equal(result.classes[0].day, 1);
     assert.equal(result.classes[0].startTime, "08:00");
-    assert.equal(result.classes[0].endTime, "09:40");
+    assert.equal(result.classes[0].endTime, "09:50");
     assert.equal(result.classes[1].day, 3);
     assert.equal(result.classes[1].location, "鼓楼 教室202");
   });
@@ -25,7 +25,7 @@ describe("schedule import parser", () => {
     assert.equal(result.classes[0].title, "数据结构");
     assert.equal(result.classes[0].day, 5);
     assert.equal(result.classes[0].startTime, "14:00");
-    assert.equal(result.classes[0].endTime, "15:40");
+    assert.equal(result.classes[0].endTime, "15:50");
     assert.equal(result.classes[0].location, "仙林 逸夫楼B201");
   });
 
@@ -37,15 +37,15 @@ MATH001\t高等数学\t张三\t周三 2-4节 14-18周 基础实验楼丙405,周�
     assert.equal(result.classes.length, 2);
     assert.equal(result.classes[0].title, "高等数学");
     assert.equal(result.classes[0].day, 3);
-    assert.equal(result.classes[0].startTime, "08:55");
-    assert.equal(result.classes[0].endTime, "11:40");
+    assert.equal(result.classes[0].startTime, "09:00");
+    assert.equal(result.classes[0].endTime, "12:00");
     assert.equal(result.classes[0].location, "基础实验楼丙405");
     assert.equal(result.classes[0].teacher, "张三");
     assert.equal(result.classes[0].classNumber, "MATH001");
     assert.deepEqual(result.classes[0].weeks, [14, 15, 16, 17, 18]);
     assert.equal(result.classes[1].day, 5);
     assert.equal(result.classes[1].startTime, "14:00");
-    assert.equal(result.classes[1].endTime, "15:40");
+    assert.equal(result.classes[1].endTime, "15:50");
     assert.equal(result.classes[1].location, "仙Ⅱ-304");
     assert.deepEqual(result.classes[1].weeks, [1, 2, 3, 10, 11, 12, 13]);
   });

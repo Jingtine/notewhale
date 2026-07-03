@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function CourseCard({
   id,
@@ -18,9 +18,35 @@ function CourseCard({
 }) {
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
   const displayNoteCount = Number(noteCount || 0);
   const displayDdlCount = Number(ddlCount || 0);
   const displayResourceCount = Number(resourceCount || 0);
+  const courseInitial = String(title || "课").trim().slice(0, 1) || "课";
+
+  useEffect(() => {
+    if (!showMenu) return;
+
+    function handlePointerDown(event) {
+      if (!menuRef.current?.contains(event.target)) {
+        setShowMenu(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setShowMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showMenu]);
 
   function handleOpenCourse(e) {
     if (isTrash) return;
@@ -60,7 +86,17 @@ function CourseCard({
 
   return (
     <div
+      className="course-card"
+      role={isTrash ? undefined : "button"}
+      tabIndex={isTrash ? -1 : 0}
+      aria-label={isTrash ? undefined : `打开课程：${title}`}
       onClick={handleOpenCourse}
+      onKeyDown={(event) => {
+        if (!isTrash && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          navigate(`/course/${String(id)}`);
+        }
+      }}
       style={{
         minHeight: "104px",
         padding: "16px 18px",
@@ -76,7 +112,7 @@ function CourseCard({
         overflow: "visible",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
+        e.currentTarget.style.transform = "translateY(-2px)";
         e.currentTarget.style.boxShadow = theme.hoverShadow;
         e.currentTarget.style.border = `1px solid ${theme.hoverBorder}`;
       }}
@@ -88,6 +124,7 @@ function CourseCard({
     >
       {!isTrash && (
         <div
+          ref={menuRef}
           style={{
             position: "absolute",
             top: "16px",
@@ -148,36 +185,31 @@ function CourseCard({
                 zIndex: 99,
               }}
             >
-              <div
+              <button
+                type="button"
                 onClick={() => {
                   onRename?.(id, title);
                   setShowMenu(false);
                 }}
-                style={{
-                  padding: "11px 14px",
-                  cursor: "pointer",
-                  color: darkMode ? "#F8FAFC" : "#334155",
-                  fontSize: "13px",
-                }}
+                style={courseMenuItemStyle(darkMode)}
               >
                 编辑课程
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => {
                   onDelete(id);
                   setShowMenu(false);
                 }}
                 style={{
-                  padding: "11px 14px",
-                  cursor: "pointer",
+                  ...courseMenuItemStyle(darkMode),
                   color: "#EF4444",
-                  fontSize: "13px",
                   borderTop: `1px solid ${theme.menuBorder}`,
                 }}
               >
                 删除课程
-              </div>
+              </button>
             </div>
           )}
         </div>
@@ -185,27 +217,62 @@ function CourseCard({
 
       <div
         style={{
-          width: "42px",
-          height: "6px",
-          borderRadius: "999px",
-          background: darkMode ? "#818CF8" : "#3B82F6",
-          marginBottom: "12px",
-        }}
-      />
-
-      <h2
-        style={{
-          margin: 0,
-          color: theme.title,
-          fontSize: "18px",
-          fontWeight: 600,
-          lineHeight: 1.35,
-          letterSpacing: "-0.03em",
-          paddingRight: isTrash ? 0 : "64px",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          paddingRight: isTrash ? 0 : "66px",
         }}
       >
-        {title}
-      </h2>
+        <div
+          aria-hidden="true"
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            background: darkMode
+              ? "linear-gradient(135deg,rgba(129,140,248,0.26),rgba(99,102,241,0.14))"
+              : "linear-gradient(135deg,#E7F0FF,#DCEAFF)",
+            color: darkMode ? "#C7D2FE" : "#2563EB",
+            fontSize: "17px",
+            fontWeight: 800,
+          }}
+        >
+          {courseInitial}
+        </div>
+
+        <div style={{ minWidth: 0 }}>
+          <h2
+            title={title}
+            style={{
+              margin: 0,
+              color: theme.title,
+              fontSize: "17px",
+              fontWeight: 700,
+              lineHeight: 1.35,
+              letterSpacing: "-0.025em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {title}
+          </h2>
+          <span
+            style={{
+              display: "block",
+              marginTop: "3px",
+              color: theme.text,
+              fontSize: "11px",
+            }}
+          >
+            课程空间
+          </span>
+        </div>
+      </div>
 
       <div
         style={{
@@ -304,6 +371,19 @@ function CourseCard({
       )}
     </div>
   );
+}
+
+function courseMenuItemStyle(darkMode) {
+  return {
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    padding: "11px 14px",
+    cursor: "pointer",
+    color: darkMode ? "#F8FAFC" : "#334155",
+    fontSize: "13px",
+    textAlign: "left",
+  };
 }
 
 export default CourseCard;
