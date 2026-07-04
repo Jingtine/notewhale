@@ -214,9 +214,56 @@ function getBackendDir() {
     : path.join(__dirname, "..", "..", "backend");
 }
 
+function copyRuntimeDirectory(source, target) {
+  fs.rmSync(target, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.cpSync(source, target, {
+    recursive: true,
+    filter(sourcePath) {
+      const name = path.basename(sourcePath);
+      return name !== "__pycache__" && !name.endsWith(".pyc");
+    },
+  });
+}
+
+function ensurePackagedRuntime() {
+  if (!app.isPackaged) {
+    const backendDir = getBackendDir();
+    return {
+      backendDir,
+      pythonDir: path.join(backendDir, ".venv", "Scripts"),
+      pythonPath: path.join(backendDir, ".venv", "Scripts", "python.exe"),
+    };
+  }
+
+  const runtimeRoot = path.join(app.getPath("userData"), "runtime", app.getVersion());
+  const backendDir = path.join(runtimeRoot, "backend");
+  const pythonDir = path.join(runtimeRoot, "python-runtime");
+  const pythonPath = path.join(pythonDir, "python.exe");
+  const markerPath = path.join(runtimeRoot, ".ready");
+  const sourceBackendDir = path.join(process.resourcesPath, "backend");
+  const sourcePythonDir = path.join(process.resourcesPath, "python-runtime");
+
+  const runtimeReady =
+    fs.existsSync(markerPath) &&
+    fs.existsSync(path.join(backendDir, "main.py")) &&
+    fs.existsSync(path.join(backendDir, "site-packages")) &&
+    fs.existsSync(pythonPath);
+
+  if (!runtimeReady) {
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    copyRuntimeDirectory(sourceBackendDir, backendDir);
+    copyRuntimeDirectory(sourcePythonDir, pythonDir);
+    fs.writeFileSync(markerPath, new Date().toISOString(), "utf8");
+  }
+
+  return { backendDir, pythonDir, pythonPath };
+}
+
 function getBackendPythonPath(backendDir) {
   return app.isPackaged
-    ? path.join(process.resourcesPath, "python-runtime", "python.exe")
+    ? path.join(app.getPath("userData"), "runtime", app.getVersion(), "python-runtime", "python.exe")
     : path.join(backendDir, ".venv", "Scripts", "python.exe");
 }
 
@@ -232,7 +279,7 @@ function getBackendPythonPathMessage(backendDir) {
     : `未找到后端 Python 环境：${getBackendPythonPathLabel(backendDir)}`;
 }
 
-function getBackendEnv(backendDir, desktopPaths) {
+function getBackendEnv(backendDir, desktopPaths, pythonDir = "") {
   const nextEnv = {
     ...process.env,
     DATABASE_URL: desktopPaths.databaseUrl,
@@ -253,6 +300,7 @@ function getBackendEnv(backendDir, desktopPaths) {
 
   if (app.isPackaged) {
     const packagedSitePackages = path.join(backendDir, "site-packages");
+    nextEnv.PYTHONHOME = pythonDir || path.dirname(getBackendPythonPath(backendDir));
     nextEnv.PYTHONPATH = [
       backendDir,
       packagedSitePackages,
@@ -390,10 +438,26 @@ async function startLocalBackend() {
     return;
   }
 
-  const backendDir = getBackendDir();
-  const pythonPath = getBackendPythonPath(backendDir);
   const desktopPaths = getDesktopBackendPaths();
   const logPath = path.join(desktopPaths.dataDir, "backend.log");
+  let runtimePaths = null;
+
+  try {
+    runtimePaths = ensurePackagedRuntime();
+  } catch (error) {
+    appendBackendLog(logPath, `runtime prepare error: ${error.stack || error.message || error}`);
+    updateBackendStatus({
+      state: "missing",
+      managed: false,
+      url: BACKEND_URL,
+      dataDir: desktopPaths.dataDir,
+      message: `本地运行环境准备失败：${error.message || error}。日志：${logPath}`,
+    });
+    return;
+  }
+
+  const backendDir = runtimePaths.backendDir;
+  const pythonPath = runtimePaths.pythonPath;
 
   if (!fs.existsSync(pythonPath)) {
     updateBackendStatus({
@@ -419,6 +483,7 @@ async function startLocalBackend() {
   appendBackendLog(logPath, `backendDir=${backendDir}`);
   appendBackendLog(logPath, `pythonPath=${pythonPath}`);
   appendBackendLog(logPath, `databasePath=${desktopPaths.databasePath}`);
+  appendBackendLog(logPath, `pythonHome=${runtimePaths.pythonDir || ""}`);
 
   const backendLogStream = fs.createWriteStream(logPath, { flags: "a" });
 
@@ -427,7 +492,7 @@ async function startLocalBackend() {
     ["-m", "uvicorn", "main:app", "--host", BACKEND_HOST, "--port", String(BACKEND_PORT)],
     {
       cwd: backendDir,
-      env: getBackendEnv(backendDir, desktopPaths),
+      env: getBackendEnv(backendDir, desktopPaths, runtimePaths.pythonDir),
       stdio: ["ignore", backendLogStream, backendLogStream],
       windowsHide: true,
     },
