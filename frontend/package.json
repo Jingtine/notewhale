@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "NoteWhale desktop learning workspace",
   "author": "CH4 Team",
   "main": "electron/main.cjs",
@@ -11,7 +11,8 @@
     "dev": "vite",
     "desktop": "npm run build && electron electron/main.cjs",
     "desktop:dev": "electron electron/main.cjs",
-    "dist": "npm run build && electron-builder --win nsis",
+    "prepare:desktop-backend": "node scripts/prepare-desktop-backend.cjs",
+    "dist": "npm run build && npm run prepare:desktop-backend && electron-builder --win nsis",
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test src/data/learningItemMappers.test.js src/data/courseFolderStore.test.js src/data/userStorage.test.js src/data/resourceMappers.test.js src/data/courseMetrics.test.js src/data/globalSearch.test.js src/data/homeFolderView.test.js src/data/aiModelSettings.test.js src/data/scheduleImport.test.js src/data/njuScheduleExtractor.test.js src/data/schedulePlanner.test.js",
@@ -32,14 +33,17 @@
     ],
     "extraResources": [
       {
-        "from": "../backend",
+        "from": "build/backend",
         "to": "backend",
         "filter": [
-          "**/*",
-          "!**/__pycache__/**",
-          "!**/*.pyc",
-          "!uploads/**",
-          "!notewhale.db"
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/python-runtime",
+        "to": "python-runtime",
+        "filter": [
+          "**/*"
         ]
       }
     ],

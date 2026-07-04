@@ -214,6 +214,65 @@ function getBackendDir() {
     : path.join(__dirname, "..", "..", "backend");
 }
 
+function getBackendPythonPath(backendDir) {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "python-runtime", "python.exe")
+    : path.join(backendDir, ".venv", "Scripts", "python.exe");
+}
+
+function getBackendPythonPathLabel(backendDir) {
+  return app.isPackaged
+    ? "python-runtime\\python.exe"
+    : path.relative(process.cwd(), path.join(backendDir, ".venv", "Scripts", "python.exe"));
+}
+
+function getBackendPythonPathMessage(backendDir) {
+  return app.isPackaged
+    ? "安装包缺少 Python 运行环境，请重新安装新版 NoteWhale。"
+    : `未找到后端 Python 环境：${getBackendPythonPathLabel(backendDir)}`;
+}
+
+function getBackendEnv(backendDir, desktopPaths) {
+  const nextEnv = {
+    ...process.env,
+    DATABASE_URL: desktopPaths.databaseUrl,
+    NOTEWHALE_DESKTOP_DATA_DIR: desktopPaths.dataDir,
+    NOTEWHALE_UPLOAD_DIR: desktopPaths.uploadsDir,
+    NOTEWHALE_SECRET_KEY:
+      process.env.NOTEWHALE_SECRET_KEY || "notewhale-local-desktop-secret",
+    NOTEWHALE_TEXT_API_URL:
+      process.env.NOTEWHALE_TEXT_API_URL ||
+      "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    NOTEWHALE_TEXT_MODEL: process.env.NOTEWHALE_TEXT_MODEL || "glm-4-flash-250414",
+    NOTEWHALE_VISION_API_URL:
+      process.env.NOTEWHALE_VISION_API_URL ||
+      "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    NOTEWHALE_VISION_MODEL: process.env.NOTEWHALE_VISION_MODEL || "glm-4v-flash",
+    PYTHONIOENCODING: "utf-8",
+  };
+
+  if (app.isPackaged) {
+    const packagedSitePackages = path.join(backendDir, "site-packages");
+    nextEnv.PYTHONPATH = [
+      backendDir,
+      packagedSitePackages,
+      process.env.PYTHONPATH || "",
+    ]
+      .filter(Boolean)
+      .join(path.delimiter);
+  }
+
+  return nextEnv;
+}
+
+function appendBackendLog(logPath, message) {
+  try {
+    fs.appendFileSync(logPath, `${message}\n`, "utf8");
+  } catch {
+    // Startup diagnostics must never block the app from opening.
+  }
+}
+
 function loadApplication() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -294,7 +353,7 @@ async function checkBackendReady(timeoutMs = 1200) {
   return checkBackendCapabilities(timeoutMs);
 }
 
-async function waitForBackendReady(timeoutMs = 8000) {
+async function waitForBackendReady(timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -332,8 +391,9 @@ async function startLocalBackend() {
   }
 
   const backendDir = getBackendDir();
-  const pythonPath = path.join(backendDir, ".venv", "Scripts", "python.exe");
+  const pythonPath = getBackendPythonPath(backendDir);
   const desktopPaths = getDesktopBackendPaths();
+  const logPath = path.join(desktopPaths.dataDir, "backend.log");
 
   if (!fs.existsSync(pythonPath)) {
     updateBackendStatus({
@@ -341,7 +401,7 @@ async function startLocalBackend() {
       managed: false,
       url: BACKEND_URL,
       dataDir: desktopPaths.dataDir,
-      message: "未找到后端 Python 环境，请先在 backend 目录初始化 .venv。",
+      message: getBackendPythonPathMessage(backendDir),
     });
     return;
   }
@@ -354,40 +414,47 @@ async function startLocalBackend() {
     message: "正在启动本地后端服务...",
   });
 
+  appendBackendLog(logPath, "");
+  appendBackendLog(logPath, `[${new Date().toISOString()}] Starting NoteWhale backend`);
+  appendBackendLog(logPath, `backendDir=${backendDir}`);
+  appendBackendLog(logPath, `pythonPath=${pythonPath}`);
+  appendBackendLog(logPath, `databasePath=${desktopPaths.databasePath}`);
+
+  const backendLogStream = fs.createWriteStream(logPath, { flags: "a" });
+
   backendProcess = spawn(
     pythonPath,
     ["-m", "uvicorn", "main:app", "--host", BACKEND_HOST, "--port", String(BACKEND_PORT)],
     {
       cwd: backendDir,
-      env: {
-        ...process.env,
-        DATABASE_URL: desktopPaths.databaseUrl,
-        NOTEWHALE_DESKTOP_DATA_DIR: desktopPaths.dataDir,
-        NOTEWHALE_UPLOAD_DIR: desktopPaths.uploadsDir,
-        NOTEWHALE_SECRET_KEY:
-          process.env.NOTEWHALE_SECRET_KEY || "notewhale-local-desktop-secret",
-        NOTEWHALE_TEXT_API_URL:
-          process.env.NOTEWHALE_TEXT_API_URL ||
-          "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-        NOTEWHALE_TEXT_MODEL: process.env.NOTEWHALE_TEXT_MODEL || "glm-4-flash-250414",
-        NOTEWHALE_VISION_API_URL:
-          process.env.NOTEWHALE_VISION_API_URL ||
-          "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-        NOTEWHALE_VISION_MODEL: process.env.NOTEWHALE_VISION_MODEL || "glm-4v-flash",
-      },
-      stdio: "ignore",
+      env: getBackendEnv(backendDir, desktopPaths),
+      stdio: ["ignore", backendLogStream, backendLogStream],
       windowsHide: true,
     },
   );
 
+  backendProcess.once("error", (error) => {
+    appendBackendLog(logPath, `spawn error: ${error.stack || error.message || error}`);
+    backendLogStream.end();
+    updateBackendStatus({
+      state: "stopped",
+      managed: true,
+      url: BACKEND_URL,
+      dataDir: desktopPaths.dataDir,
+      message: `本地后端启动失败：${error.message || error}。日志：${logPath}`,
+    });
+  });
+
   backendProcess.once("exit", (code, signal) => {
+    appendBackendLog(logPath, `backend exited: code=${code ?? "null"}, signal=${signal ?? "null"}`);
+    backendLogStream.end();
     if (backendStatus.state !== "stopping") {
       updateBackendStatus({
         state: "stopped",
         managed: true,
         url: BACKEND_URL,
         dataDir: desktopPaths.dataDir,
-        message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。`,
+        message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。日志：${logPath}`,
       });
     }
     backendProcess = null;
@@ -407,7 +474,7 @@ async function startLocalBackend() {
       managed: true,
       url: BACKEND_URL,
       dataDir: desktopPaths.dataDir,
-      message: "本地后端启动超时，请稍后重试或检查 backend 日志。",
+      message: `本地后端启动超时，请稍后重试或检查日志：${logPath}`,
     });
   }
 }
