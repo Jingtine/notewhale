@@ -8,6 +8,7 @@ const { closeLocalStore, handleLocalApiRequest, initLocalStore } = require("./lo
 
 let mainWindow = null;
 let backendProcess = null;
+let localStoreReady = false;
 let startupScreenVisible = false;
 let backendStatus = {
   state: "starting",
@@ -192,7 +193,7 @@ function statusTitle(state) {
     stopping: "正在关闭本地服务",
     timeout: "本地服务启动超时",
     missing: "本地运行环境缺失",
-    stopped: "本地服务已停止",
+    stopped: "增强服务已停止",
   };
 
   return titles[state] || "正在准备本地服务";
@@ -518,41 +519,45 @@ async function startLocalBackend() {
   appendBackendLog(logPath, `pythonHome=${runtimePaths.pythonDir || ""}`);
   appendBackendLog(logPath, `backendUrl=${getBackendUrl()}`);
 
-  const backendLogStream = fs.createWriteStream(logPath, { flags: "a" });
-
   backendProcess = spawn(
     pythonPath,
     ["-m", "uvicorn", "main:app", "--host", BACKEND_HOST, "--port", String(backendPort)],
     {
       cwd: backendDir,
       env: getBackendEnv(backendDir, desktopPaths, runtimePaths.pythonDir),
-      stdio: ["ignore", backendLogStream, backendLogStream],
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     },
   );
 
+  backendProcess.stdout?.on("data", (chunk) => {
+    appendBackendLog(logPath, chunk.toString());
+  });
+
+  backendProcess.stderr?.on("data", (chunk) => {
+    appendBackendLog(logPath, chunk.toString());
+  });
+
   backendProcess.once("error", (error) => {
     appendBackendLog(logPath, `spawn error: ${error.stack || error.message || error}`);
-    backendLogStream.end();
     updateBackendStatus({
       state: "stopped",
       managed: true,
       url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
-      message: `本地后端启动失败：${error.message || error}。日志：${logPath}`,
+      message: `后台增强服务启动失败：${error.message || error}。基础离线功能仍可使用。日志：${logPath}`,
     });
   });
 
   backendProcess.once("exit", (code, signal) => {
     appendBackendLog(logPath, `backend exited: code=${code ?? "null"}, signal=${signal ?? "null"}`);
-    backendLogStream.end();
     if (backendStatus.state !== "stopping") {
       updateBackendStatus({
         state: "stopped",
         managed: true,
         url: getBackendUrl(),
         dataDir: desktopPaths.dataDir,
-        message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。日志：${logPath}`,
+        message: `后台增强服务已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。基础离线功能仍可使用。日志：${logPath}`,
       });
     }
     backendProcess = null;
@@ -627,7 +632,7 @@ function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
       height: 820,
       minWidth: 920,
       minHeight: 680,
-      title: "鍗椾含澶у璇捐〃璁よ瘉",
+      title: "南京大学课表认证",
       parent: mainWindow || undefined,
       modal: false,
       backgroundColor: "#FFFFFF",
@@ -749,7 +754,10 @@ ipcMain.handle("backend:status", async () => {
     });
   }
 
-  return backendStatus;
+  return {
+    ...backendStatus,
+    localStoreReady,
+  };
 });
 
 ipcMain.handle("desktop:open-data-dir", async () => {
@@ -774,7 +782,7 @@ ipcMain.handle("local-api:request", async (_event, request) => {
 });
 
 app.whenReady().then(async () => {
-  initLocalStore(app.getPath("userData"));
+  localStoreReady = initLocalStore(app.getPath("userData"));
   createMainWindow();
   loadApplication();
   startLocalBackend().catch((error) => {

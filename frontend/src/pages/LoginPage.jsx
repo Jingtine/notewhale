@@ -22,23 +22,25 @@ async function probeBackend() {
 
 function normalizeDesktopStatus(result = {}) {
   const state = result.state || "unknown";
+  const localStoreReady = Boolean(result.localStoreReady);
   const labels = {
-    ready: "本地服务运行中",
-    starting: "本地服务启动中",
-    stopping: "本地服务关闭中",
-    timeout: "本地服务启动超时",
-    missing: "本地环境未初始化",
-    stopped: "本地服务已停止",
-    error: "本地服务异常",
-    unknown: "本地服务状态未知",
+    ready: "增强服务运行中",
+    starting: localStoreReady ? "本地数据可用" : "本地数据启动中",
+    stopping: "增强服务关闭中",
+    timeout: localStoreReady ? "本地数据可用" : "增强服务启动超时",
+    missing: localStoreReady ? "本地数据可用" : "本地环境未初始化",
+    stopped: localStoreReady ? "本地数据可用" : "增强服务已停止",
+    error: localStoreReady ? "本地数据可用" : "本地服务异常",
+    unknown: localStoreReady ? "本地数据可用" : "本地服务状态未知",
   };
 
   return {
     available: true,
     state,
     label: labels[state] || labels.unknown,
-    message: result.message || "桌面服务状态未知。",
+    message: result.message || (localStoreReady ? "基础离线功能可使用。" : "桌面服务状态未知。"),
     managed: Boolean(result.managed),
+    localStoreReady,
     url: result.url || "http://127.0.0.1:8000",
     dataDir: result.dataDir || "",
   };
@@ -55,6 +57,7 @@ async function readDesktopStatus() {
       label: "浏览器模式",
       message: "当前不是桌面版，后端服务由外部环境提供。",
       managed: false,
+      localStoreReady: false,
       url: API_BASE_URL,
       dataDir: "",
     };
@@ -69,6 +72,7 @@ async function readDesktopStatus() {
       label: "状态读取失败",
       message: error?.message || "无法读取桌面服务状态。",
       managed: false,
+      localStoreReady: false,
       url: API_BASE_URL,
       dataDir: "",
     };
@@ -90,8 +94,9 @@ function LoginPage({ onLogin }) {
     available: false,
     state: "checking",
     label: "检测中",
-    message: "正在检测登录所需服务。",
+    message: "正在检测本地数据服务。",
     managed: false,
+    localStoreReady: false,
     url: API_BASE_URL,
     dataDir: "",
   });
@@ -121,7 +126,7 @@ function LoginPage({ onLogin }) {
   const apiBadge = useMemo(() => {
     if (apiState === "checking") {
       return {
-        text: "正在检测后端",
+        text: "正在检测本地数据",
         dot: "#F59E0B",
         bg: "#FFF7ED",
         color: "#B45309",
@@ -130,34 +135,34 @@ function LoginPage({ onLogin }) {
 
     if (apiState === "online") {
       return {
-        text: desktopStatus.available ? desktopStatus.label : "后端连接正常",
+        text: "增强服务运行中",
         dot: "#10B981",
         bg: "#ECFDF5",
         color: "#047857",
       };
     }
 
-    if (desktopStatus.available && desktopStatus.state === "starting") {
+    if (desktopStatus.localStoreReady) {
       return {
-        text: "本地服务启动中",
-        dot: "#F59E0B",
-        bg: "#FFF7ED",
-        color: "#B45309",
+        text: "本地数据可用",
+        dot: "#10B981",
+        bg: "#ECFDF5",
+        color: "#047857",
       };
     }
 
     return {
       text: desktopStatus.available ? desktopStatus.label : "本地体验模式",
-      dot: desktopStatus.available ? "#F59E0B" : "#3B82F6",
-      bg: desktopStatus.available ? "#FFF7ED" : "#EFF6FF",
-      color: desktopStatus.available ? "#B45309" : "#1D4ED8",
+      dot: "#F59E0B",
+      bg: "#FFF7ED",
+      color: "#B45309",
     };
   }, [apiState, desktopStatus]);
 
   async function refreshBackendStatus({ showMessage = true } = {}) {
     setLoading(true);
     if (showMessage) {
-      setError("正在重新检测登录服务...");
+      setError("正在刷新服务状态...");
     }
 
     const [isOnline, nextDesktopStatus] = await Promise.all([
@@ -165,39 +170,28 @@ function LoginPage({ onLogin }) {
       readDesktopStatus(),
     ]);
 
-    setApiState(isOnline ? "online" : "local");
+    const nextApiState = isOnline ? "online" : "local";
+    setApiState(nextApiState);
     setDesktopStatus(nextDesktopStatus);
     setLoading(false);
 
-    if (isOnline) {
-      if (showMessage) {
-        setError("");
-      }
-      return true;
-    }
-
     if (showMessage) {
       setError(
-        nextDesktopStatus.available
-          ? `${nextDesktopStatus.label}：${nextDesktopStatus.message}`
-          : "要实现多设备同步，需要先启动后端服务。请确认 http://127.0.0.1:8000/health 可访问。"
+        isOnline || nextDesktopStatus.localStoreReady
+          ? ""
+          : nextDesktopStatus.available
+          ? nextDesktopStatus.message
+          : "当前不是桌面版，请确认后端服务可访问。"
       );
     }
 
-    return false;
+    return isOnline || nextDesktopStatus.localStoreReady;
   }
 
   async function submit() {
     const cleanAccount = account.trim();
     const cleanName = name.trim() || cleanAccount.split("@")[0];
 
-    if (apiState !== "online") {
-      const isOnline = await refreshBackendStatus();
-
-      if (!isOnline) {
-        return;
-      }
-    }
 
     if (!cleanAccount) {
       setError("请填写邮箱 / 学号");
@@ -240,7 +234,7 @@ function LoginPage({ onLogin }) {
     } catch (error) {
       const message =
         error?.message === "Failed to fetch"
-          ? "网络连接暂时异常，请稍后重试。"
+          ? "本地数据暂不可用，请重启应用后再试。"
           : error?.message || (mode === "register" ? "注册失败，请检查账号信息。" : "登录失败，请检查账号或密码。");
 
       setError(message);
@@ -269,7 +263,7 @@ function LoginPage({ onLogin }) {
           </h1>
 
           <p style={heroTextStyle}>
-            课程、笔记、资料和 DDL 会按账号保存。打开后直接回到你的学习现场。
+            课程、笔记、资料和 DDL 会按账号保存在本机。打开后直接回到你的学习现场。
           </p>
 
           <div style={statusStripStyle}>
@@ -342,7 +336,7 @@ function LoginPage({ onLogin }) {
                   setName(event.target.value);
                   setError("");
                 }}
-                placeholder="例如：鲸记用户"
+                placeholder="例如：NoteWhale 用户"
                 style={inputStyle}
               />
 
@@ -374,7 +368,7 @@ function LoginPage({ onLogin }) {
 
           <div style={actionAreaStyle}>
             <button onClick={submit} style={primaryButtonStyle} disabled={loading}>
-              {loading ? "正在处理..." : mode === "login" ? "登录鲸记" : "注册并进入"}
+              {loading ? "正在处理..." : mode === "login" ? "登录 NoteWhale" : "注册并进入"}
             </button>
 
             <p style={hintStyle}>
@@ -400,7 +394,10 @@ function LoginPage({ onLogin }) {
 
 function ServiceStatusPanel({ apiState, desktopStatus, loading, onRetry }) {
   const isOnline = apiState === "online";
-  const toneColor = isOnline ? "#10B981" : "#F59E0B";
+  const canUseLocal = Boolean(desktopStatus.localStoreReady);
+  const good = isOnline || canUseLocal;
+  const toneColor = good ? "#10B981" : "#F59E0B";
+  const textColor = good ? "#047857" : "#B45309";
   const desktopLabel = desktopStatus.available
     ? desktopStatus.label
     : "浏览器环境";
@@ -408,8 +405,8 @@ function ServiceStatusPanel({ apiState, desktopStatus, loading, onRetry }) {
   return (
     <div style={servicePanelStyle}>
       <span style={{ ...statusDotStyle, background: toneColor }} />
-      <span style={{ color: isOnline ? "#047857" : "#B45309", fontWeight: 850 }}>
-        {isOnline ? "账号服务可用" : desktopLabel}
+      <span style={{ color: textColor, fontWeight: 850 }}>
+        {isOnline ? "增强服务运行中" : desktopLabel}
       </span>
       <button
         type="button"
