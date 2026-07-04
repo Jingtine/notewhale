@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+﻿const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const path = require("node:path");
 
 let mainWindow = null;
@@ -16,9 +17,16 @@ let backendStatus = {
 };
 
 const BACKEND_HOST = "127.0.0.1";
-const BACKEND_PORT = 8000;
-const BACKEND_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
-const HEALTH_URL = `${BACKEND_URL}/health`;
+const DEFAULT_BACKEND_PORT = 8000;
+let backendPort = DEFAULT_BACKEND_PORT;
+
+function getBackendUrl() {
+  return `http://${BACKEND_HOST}:${backendPort}`;
+}
+
+function getHealthUrl() {
+  return `${getBackendUrl()}/health`;
+}
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -321,6 +329,30 @@ function appendBackendLog(logPath, message) {
   }
 }
 
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, BACKEND_HOST);
+  });
+}
+
+async function findBackendPort(startPort = DEFAULT_BACKEND_PORT, maxAttempts = 30) {
+  for (let offset = 0; offset < maxAttempts; offset += 1) {
+    const candidatePort = startPort + offset;
+
+    if (await isPortAvailable(candidatePort)) {
+      return candidatePort;
+    }
+  }
+
+  throw new Error(`No available local port from ${startPort} to ${startPort + maxAttempts - 1}`);
+}
+
 function loadApplication() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -340,7 +372,7 @@ function normalizeUrl(url) {
 
 function checkBackendHealth(timeoutMs = 1200) {
   return new Promise((resolve) => {
-    const request = http.get(HEALTH_URL, { timeout: timeoutMs }, (response) => {
+    const request = http.get(getHealthUrl(), { timeout: timeoutMs }, (response) => {
       response.resume();
       resolve(response.statusCode >= 200 && response.statusCode < 500);
     });
@@ -385,7 +417,7 @@ function fetchJson(url, timeoutMs = 1200) {
 }
 
 async function checkBackendCapabilities(timeoutMs = 1200) {
-  const schema = await fetchJson(`${BACKEND_URL}/openapi.json`, timeoutMs);
+  const schema = await fetchJson(`${getBackendUrl()}/openapi.json`, timeoutMs);
   const paths = schema?.paths || {};
   const authMeMethods = paths["/api/auth/me"] || {};
   const passwordMethods = paths["/api/auth/password"] || {};
@@ -415,25 +447,15 @@ async function waitForBackendReady(timeoutMs = 30000) {
 }
 
 async function startLocalBackend() {
+  backendPort = DEFAULT_BACKEND_PORT;
+
   if (await checkBackendReady()) {
     updateBackendStatus({
       state: "ready",
       managed: false,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: "",
       message: "已连接正在运行的本地后端。",
-    });
-    return;
-  }
-
-  if (await checkBackendHealth()) {
-    updateBackendStatus({
-      state: "missing",
-      managed: false,
-      url: BACKEND_URL,
-      dataDir: "",
-      message:
-        "127.0.0.1:8000 正在运行旧版后端，缺少账号资料/密码接口。请关闭旧后端后重新启动桌面版。",
     });
     return;
   }
@@ -442,6 +464,15 @@ async function startLocalBackend() {
   const logPath = path.join(desktopPaths.dataDir, "backend.log");
   let runtimePaths = null;
 
+  if (!(await isPortAvailable(backendPort))) {
+    const occupiedPort = backendPort;
+    backendPort = await findBackendPort(occupiedPort + 1);
+    appendBackendLog(
+      logPath,
+      `port ${occupiedPort} is unavailable; switched to ${backendPort}`,
+    );
+  }
+
   try {
     runtimePaths = ensurePackagedRuntime();
   } catch (error) {
@@ -449,7 +480,7 @@ async function startLocalBackend() {
     updateBackendStatus({
       state: "missing",
       managed: false,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
       message: `本地运行环境准备失败：${error.message || error}。日志：${logPath}`,
     });
@@ -463,7 +494,7 @@ async function startLocalBackend() {
     updateBackendStatus({
       state: "missing",
       managed: false,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
       message: getBackendPythonPathMessage(backendDir),
     });
@@ -473,7 +504,7 @@ async function startLocalBackend() {
   updateBackendStatus({
     state: "starting",
     managed: true,
-    url: BACKEND_URL,
+    url: getBackendUrl(),
     dataDir: desktopPaths.dataDir,
     message: "正在启动本地后端服务...",
   });
@@ -484,12 +515,13 @@ async function startLocalBackend() {
   appendBackendLog(logPath, `pythonPath=${pythonPath}`);
   appendBackendLog(logPath, `databasePath=${desktopPaths.databasePath}`);
   appendBackendLog(logPath, `pythonHome=${runtimePaths.pythonDir || ""}`);
+  appendBackendLog(logPath, `backendUrl=${getBackendUrl()}`);
 
   const backendLogStream = fs.createWriteStream(logPath, { flags: "a" });
 
   backendProcess = spawn(
     pythonPath,
-    ["-m", "uvicorn", "main:app", "--host", BACKEND_HOST, "--port", String(BACKEND_PORT)],
+    ["-m", "uvicorn", "main:app", "--host", BACKEND_HOST, "--port", String(backendPort)],
     {
       cwd: backendDir,
       env: getBackendEnv(backendDir, desktopPaths, runtimePaths.pythonDir),
@@ -504,7 +536,7 @@ async function startLocalBackend() {
     updateBackendStatus({
       state: "stopped",
       managed: true,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
       message: `本地后端启动失败：${error.message || error}。日志：${logPath}`,
     });
@@ -517,7 +549,7 @@ async function startLocalBackend() {
       updateBackendStatus({
         state: "stopped",
         managed: true,
-        url: BACKEND_URL,
+        url: getBackendUrl(),
         dataDir: desktopPaths.dataDir,
         message: `本地后端已退出（code=${code ?? "null"}, signal=${signal ?? "null"}）。日志：${logPath}`,
       });
@@ -529,7 +561,7 @@ async function startLocalBackend() {
     updateBackendStatus({
       state: "ready",
       managed: true,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
       message: "本地后端已就绪。",
     });
@@ -537,7 +569,7 @@ async function startLocalBackend() {
     updateBackendStatus({
       state: "timeout",
       managed: true,
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       dataDir: desktopPaths.dataDir,
       message: `本地后端启动超时，请稍后重试或检查日志：${logPath}`,
     });
@@ -594,7 +626,7 @@ function waitForScheduleExtraction({ initialUrl, targetUrl, extractorScript }) {
       height: 820,
       minWidth: 920,
       minHeight: 680,
-      title: "南京大学课表认证",
+      title: "鍗椾含澶у璇捐〃璁よ瘉",
       parent: mainWindow || undefined,
       modal: false,
       backgroundColor: "#FFFFFF",
@@ -711,7 +743,7 @@ ipcMain.handle("backend:status", async () => {
     updateBackendStatus({
       ...backendStatus,
       state: "ready",
-      url: BACKEND_URL,
+      url: getBackendUrl(),
       message: "本地后端已就绪。",
     });
   }
@@ -759,3 +791,4 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+

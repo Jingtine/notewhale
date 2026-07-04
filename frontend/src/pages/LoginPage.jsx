@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import logo from "../assets/logo_main.png";
-import { getApiBaseUrl } from "../api/apiClient";
+import { getApiBaseUrl, getResolvedApiBaseUrl } from "../api/apiClient";
 import { loginAccount, registerAccount } from "../api/authApi";
 
 const API_BASE_URL = getApiBaseUrl();
 
 async function probeBackend() {
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const apiBaseUrl = await getResolvedApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/health`, {
       method: "GET",
       cache: "no-store",
     });

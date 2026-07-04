@@ -1,5 +1,6 @@
 const PROD_API_BASE_URL = "https://notewhale-backend.onrender.com";
 const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+const DESKTOP_API_BASE_URL_KEY = "notewhale_desktop_api_base_url";
 
 function normalizeApiUrl(value) {
   return String(value || "").trim().replace(/\/$/, "");
@@ -32,7 +33,41 @@ const TOKEN_STORAGE_KEY = "notewhale_token";
 const USER_STORAGE_KEY = "notewhale_user";
 
 export function getApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    const cachedDesktopUrl = normalizeApiUrl(
+      localStorage.getItem(DESKTOP_API_BASE_URL_KEY),
+    );
+
+    if (cachedDesktopUrl) {
+      return cachedDesktopUrl;
+    }
+  }
+
   return API_BASE_URL;
+}
+
+export async function getResolvedApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return API_BASE_URL;
+  }
+
+  const bridge = window.notewhaleDesktop;
+
+  if (typeof bridge?.getBackendStatus === "function") {
+    try {
+      const status = await bridge.getBackendStatus();
+      const desktopUrl = normalizeApiUrl(status?.url);
+
+      if (desktopUrl) {
+        localStorage.setItem(DESKTOP_API_BASE_URL_KEY, desktopUrl);
+        return desktopUrl;
+      }
+    } catch {
+      // Fall back to the cached or default API URL.
+    }
+  }
+
+  return getApiBaseUrl();
 }
 
 export function getAuthToken() {
@@ -67,7 +102,8 @@ export function getSavedUser() {
 }
 
 export async function request(path, options = {}) {
-  const url = `${API_BASE_URL}${path}`;
+  const apiBaseUrl = await getResolvedApiBaseUrl();
+  const url = `${apiBaseUrl}${path}`;
   const isFormData = options.body instanceof FormData;
   const token = getAuthToken();
 
@@ -117,7 +153,7 @@ export async function checkBackendHealth() {
       status: "offline",
       service: "notewhale-backend",
       message: error.message,
-      apiBaseUrl: API_BASE_URL,
+      apiBaseUrl: getApiBaseUrl(),
     };
   }
 }
