@@ -1,4 +1,4 @@
-const ALL_FOLDERS_LABEL = "全部";
+﻿const ALL_FOLDERS_LABEL = "全部";
 const ALL_COURSES_LABEL = "全部课程";
 const STARRED_LABEL = "收藏夹";
 const TRASH_LABEL = "回收站";

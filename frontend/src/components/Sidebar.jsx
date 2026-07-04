@@ -13,10 +13,10 @@ function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const menuItems = [
-    { key: "全部", label: "首页", icon: "⌂" },
-    { key: "全部课程", label: "全部课程", icon: "▤" },
-    { key: "最近使用", label: "最近使用", icon: "◷" },
-    { key: "收藏夹", label: "收藏夹", icon: "☆" },
+    { key: "全部", label: "首页", icon: "home" },
+    { key: "全部课程", label: "全部课程", icon: "grid" },
+    { key: "最近使用", label: "最近使用", icon: "clock" },
+    { key: "收藏夹", label: "收藏夹", icon: "star" },
     { key: "学习日程", label: "学习日程", icon: "calendar", path: "/schedule" },
     { key: "回收站", label: "回收站", icon: "trash" },
   ];
@@ -30,7 +30,6 @@ function Sidebar({
         activeBg: "rgba(129,140,248,0.16)",
         activeText: "#A5B4FC",
         icon: "#94A3B8",
-        soft: "rgba(148,163,184,0.08)",
         button: "linear-gradient(135deg,#6366F1,#4F46E5)",
         buttonShadow: "0 10px 22px rgba(79,70,229,0.22)",
       }
@@ -42,7 +41,6 @@ function Sidebar({
         activeBg: "rgba(59,130,246,0.09)",
         activeText: "#2563EB",
         icon: "#94A3B8",
-        soft: "#F8FAFC",
         button: "linear-gradient(135deg,#4C8DFF,#2563EB)",
         buttonShadow: "0 10px 22px rgba(37,99,235,0.18)",
       };
@@ -51,6 +49,13 @@ function Sidebar({
     if (typeof onOpenSettings === "function") {
       onOpenSettings();
     }
+  }
+
+  function selectFolder(key) {
+    if (location.pathname !== "/") {
+      navigate("/");
+    }
+    setSelectedFolder(key);
   }
 
   return (
@@ -97,7 +102,7 @@ function Sidebar({
               lineHeight: 1.2,
             }}
           >
-            鲸记
+            NoteWhale
           </h2>
 
           <p
@@ -108,7 +113,7 @@ function Sidebar({
               letterSpacing: "0",
             }}
           >
-            NoteWhale
+            学习工作台
           </p>
         </div>
       </div>
@@ -128,12 +133,14 @@ function Sidebar({
           fontFamily: "inherit",
         }}
       >
-        ＋ 新建课程
+        新建课程
       </button>
 
       <div>
         {menuItems.map((item) => {
-          const active = item.path ? location.pathname === item.path : selectedFolder === item.key;
+          const active = item.path
+            ? location.pathname === item.path
+            : selectedFolder === item.key;
 
           return (
             <button
@@ -144,13 +151,7 @@ function Sidebar({
                   navigate(item.path);
                   return;
                 }
-
-                if (location.pathname !== "/") {
-                  navigate("/");
-                  return;
-                }
-
-                setSelectedFolder(item.key);
+                selectFolder(item.key);
               }}
               style={{
                 display: "flex",
@@ -170,21 +171,7 @@ function Sidebar({
                 textAlign: "left",
               }}
             >
-              <span
-                style={{
-                  width: "18px",
-                  height: "18px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  textAlign: "center",
-                  fontSize: "17px",
-                  lineHeight: 1,
-                  color: active ? colors.activeText : colors.icon,
-                }}
-              >
-                {item.icon === "trash" ? <TrashIcon /> : item.icon === "calendar" ? <CalendarIcon /> : item.icon}
-              </span>
+              <SidebarIcon name={item.icon} active={active} colors={colors} />
 
               <span
                 style={{
@@ -238,8 +225,9 @@ function Sidebar({
               color: colors.subText,
               padding: 0,
             }}
+            aria-label="新建文件夹"
           >
-            ＋
+            +
           </button>
         </div>
 
@@ -278,14 +266,7 @@ function Sidebar({
                     minWidth: 0,
                   }}
                 >
-                  <span
-                    style={{
-                      color: active ? colors.activeText : colors.icon,
-                      fontSize: "16px",
-                    }}
-                  >
-                    ▭
-                  </span>
+                  <SidebarIcon name="folder" active={active} colors={colors} />
 
                   <span
                     style={{
@@ -306,7 +287,7 @@ function Sidebar({
                     marginLeft: "8px",
                   }}
                 >
-                  {folder.courses.length}
+                  {(folder.courses || []).length}
                 </span>
               </div>
             );
@@ -334,54 +315,118 @@ function Sidebar({
           textAlign: "left",
         }}
       >
-        <span>⚙</span>
+        <SidebarIcon name="settings" active={false} colors={colors} />
         <span>设置</span>
       </button>
     </aside>
   );
 }
 
+function SidebarIcon({ name, active, colors }) {
+  const stroke = active ? colors.activeText : colors.icon;
 
-function TrashIcon() {
+  if (name === "calendar") return <CalendarIcon stroke={stroke} />;
+  if (name === "trash") return <TrashIcon stroke={stroke} />;
+  if (name === "settings") return <SettingsIcon stroke={stroke} />;
+  if (name === "folder") return <FolderIcon stroke={stroke} />;
+  if (name === "star") return <StarIcon stroke={stroke} />;
+  if (name === "clock") return <ClockIcon stroke={stroke} />;
+  if (name === "grid") return <GridIcon stroke={stroke} />;
+  return <HomeIcon stroke={stroke} />;
+}
+
+function IconShell({ stroke, children }) {
   return (
     <svg
       width="18"
       height="18"
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
+      stroke={stroke}
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
     >
+      {children}
+    </svg>
+  );
+}
+
+function HomeIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <path d="M4 11.5 12 4l8 7.5" />
+      <path d="M6.5 10.5V20h11V10.5" />
+    </IconShell>
+  );
+}
+
+function GridIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <path d="M4 4h6v6H4z" />
+      <path d="M14 4h6v6h-6z" />
+      <path d="M4 14h6v6H4z" />
+      <path d="M14 14h6v6h-6z" />
+    </IconShell>
+  );
+}
+
+function ClockIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 7v5l3 2" />
+    </IconShell>
+  );
+}
+
+function StarIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8z" />
+    </IconShell>
+  );
+}
+
+function FolderIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <path d="M4 7h6l2 2h8v9.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5z" />
+    </IconShell>
+  );
+}
+
+function TrashIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
       <path d="M3 6h18" />
       <path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6" />
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
-    </svg>
+    </IconShell>
   );
 }
 
-function CalendarIcon() {
+function CalendarIcon({ stroke }) {
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
+    <IconShell stroke={stroke}>
       <path d="M8 2v4" />
       <path d="M16 2v4" />
       <path d="M3.5 9h17" />
       <path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2" />
-    </svg>
+    </IconShell>
+  );
+}
+
+function SettingsIcon({ stroke }) {
+  return (
+    <IconShell stroke={stroke}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1" />
+    </IconShell>
   );
 }
 

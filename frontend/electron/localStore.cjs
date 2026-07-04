@@ -226,7 +226,7 @@ function handleAuth(pathname, method, body, headers) {
     const password = String(body?.password || "");
     const name = String(body?.name || "").trim() || account;
 
-    if (!account || !password) return fail(400, "璇疯緭鍏ヨ处鍙峰拰瀵嗙爜");
+    if (!account || !password) return fail(400, "请输入账号和密码");
     if (password.length < 6) return fail(400, "密码至少 6 位");
 
     const existing = db.prepare("SELECT id FROM users WHERE account = ?").get(account);
@@ -262,7 +262,7 @@ function handleAuth(pathname, method, body, headers) {
   if ((pathname === "/api/auth/me" || pathname === "/api/auth/profile") && ["PATCH", "PUT", "POST"].includes(method)) {
     const user = requireUser(headers);
     const name = String(body?.name || "").trim();
-    if (!name) return fail(400, "鏄电О涓嶈兘涓虹┖");
+    if (!name) return fail(400, "昵称不能为空");
 
     db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, user.id);
     return ok(toUser(db.prepare("SELECT * FROM users WHERE id = ?").get(user.id)));
@@ -316,7 +316,7 @@ function handleFolders(pathname, method, body, headers, searchParams) {
 
     db.prepare("UPDATE folders SET title = ? WHERE id = ? AND user_id = ?").run(title, folderId, user.id);
     const folder = db.prepare("SELECT * FROM folders WHERE id = ? AND user_id = ?").get(folderId, user.id);
-    return folder ? ok(toFolder(folder)) : fail(404, "鏂囦欢澶逛笉瀛樺湪");
+    return folder ? ok(toFolder(folder)) : fail(404, "文件夹不存在");
   }
 
   const deleteMatch = pathname.match(/^\/api\/folders\/(\d+)\/delete$/);
@@ -324,7 +324,7 @@ function handleFolders(pathname, method, body, headers, searchParams) {
     const folderId = Number(deleteMatch[1]);
     const deleteCourses = searchParams.get("deleteCourses") !== "false";
     const folder = db.prepare("SELECT * FROM folders WHERE id = ? AND user_id = ?").get(folderId, user.id);
-    if (!folder) return fail(404, "鏂囦欢澶逛笉瀛樺湪");
+    if (!folder) return fail(404, "文件夹不存在");
 
     if (deleteCourses) {
       db.prepare(
@@ -354,7 +354,7 @@ function handleCourses(pathname, method, body, headers) {
 
   if (pathname === "/api/courses" && method === "POST") {
     const title = String(body?.title || "").trim();
-    if (!title) return fail(400, "璇剧▼鍚嶇О涓嶈兘涓虹┖");
+    if (!title) return fail(400, "课程名称不能为空");
 
     const result = db
       .prepare(
@@ -461,7 +461,7 @@ function handleDdls(pathname, method, body, headers) {
         String(body?.platform || ""),
         String(body?.note || ""),
         body?.completed ? 1 : 0,
-        String(body?.source || "鎵嬪姩鏂板缓"),
+        String(body?.source || "手动新建"),
         nowIso(),
       );
     return created(toDdl(db.prepare("SELECT * FROM ddls WHERE id = ?").get(result.lastInsertRowid)));
@@ -520,7 +520,7 @@ function handleLocalApiRequest(request = {}) {
 
     return unsupported();
   } catch (error) {
-    return fail(error.status || 500, error.message || "鏈湴璇锋眰澶辫触");
+    return fail(error.status || 500, error.message || "本地请求失败");
   }
 }
 

@@ -67,7 +67,7 @@ function getGreetingText(date = new Date()) {
 }
 
 function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
-  const [selectedFolder, setSelectedFolder] = useState("鍏ㄩ儴");
+  const [selectedFolder, setSelectedFolder] = useState("全部");
   const [searchText, setSearchText] = useState("");
   const [darkMode, setDarkMode] = useState(() =>
     readStorageBoolean("darkMode", false)
@@ -182,7 +182,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         setShowFolderModal(false);
         return;
       } catch (error) {
-        alert(error.message || "鍚庣鏂囦欢澶瑰垱寤哄け璐ワ紝宸插垏鎹负鏈湴淇濆瓨");
+        alert(error.message || "文件夹创建失败，已切换为本地保存");
       }
     }
 
@@ -272,7 +272,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       try {
         let backendFolder = targetFolder;
 
-        // 鏈湴鏃ф枃浠跺す杩樻病鏈?backendId 鏃讹紝鍏堝湪鍚庣鍒涘缓瀵瑰簲鏂囦欢澶广€?
+        // 本地旧文件夹还没有 backendId 时，先创建对应文件夹。
         if (!targetFolder.backendSynced || !targetFolder.backendId) {
           const savedFolder = await createBackendFolder({
             title: targetFolder.title,
@@ -309,7 +309,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           })
         );
 
-        setBackendCourseMessage("璇剧▼涓庢墍灞炴枃浠跺す宸插悓姝ュ埌鍚庣");
+        setBackendCourseMessage("课程与所属文件夹已保存");
         setNewCourseName("");
         setTargetFolderId("");
         setShowCourseModal(false);
@@ -349,7 +349,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   //   return Number.isNaN(date.getTime()) ? null : date;
   // }
 
-  /* DDL 鏃堕棿瑙ｆ瀽 */
+  /* DDL 时间解析 */
   function parseDDLDate(dateText) {
     if (!dateText) return null;
 
@@ -361,8 +361,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
   const now = new Date();
 
-/* 涓婚〉闈㈡澘鏄剧ず锛?
-   鎵€鏈夋湭瀹屾垚DDL锛氬寘鍚湭杩囨湡鍜屽凡杩囨湡锛屾柟渚垮彸渚ч潰鏉挎彁绀衡€滈€炬湡 X 澶┾€濄€?*/
+/* 首页面板显示所有未完成 DDL，包含未过期和已过期项。 */
   const activeDdls = ddls
     .filter((ddl) => {
       const ddlDate = parseDDLDate(ddl.date);
@@ -404,21 +403,21 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       courseId: selectedCourse ? selectedCourse.id : null,
       completed: false,
-      source: newDDLPreview ? "鍥剧墖璇嗗埆" : "鎵嬪姩鏂板缓",
+      source: newDDLPreview ? "图片识别" : "手动新建",
     };
 
     if (apiStatus.online) {
       try {
         const savedDdl = await createBackendDdl({
           ...baseDDL,
-          // 鍚庣鍙帴鏀舵暟鎹簱璇剧▼ id锛涙湰鍦拌绋嬩笉寮鸿鍐欏叆 courseId锛岄伩鍏嶅拰鍚庣璇剧▼ id 鍐茬獊銆?
+          // 只传服务端课程 id；本地课程不强行写入 courseId，避免 id 冲突。
           courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
           courseName: baseDDL.courseName,
         });
 
         const nextDdls = [mapBackendDdl(savedDdl), ...ddls];
         setDdls(nextDdls);
-        setBackendDdlMessage(`宸插悓姝?${nextDdls.filter((ddl) => ddl.backendSynced).length} 鏉?DDL`);
+        setBackendDdlMessage(`已保存 ${nextDdls.filter((ddl) => ddl.backendSynced).length} 条 DDL`);
         resetDDLModal();
         return;
       } catch (error) {
@@ -465,7 +464,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       setNewDDLPlatform(result.platform || "");
       setNewDDLNote(result.note || "");
     } catch (error) {
-      alert(error.message || "瑙嗚妯″瀷璇嗗埆澶辫触锛岃妫€鏌ユ櫤鑳戒綋閰嶇疆");
+      alert(error.message || "图片识别失败，请检查智能体配置");
     } finally {
       event.target.value = "";
     }
@@ -504,7 +503,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           starred: nextStarred,
         });
       } catch {
-        setBackendCourseMessage("鏀惰棌鐘舵€佹殏鏈悓姝ュ埌鍚庣");
+        setBackendCourseMessage("收藏状态暂未保存");
       }
     }
   }
@@ -556,9 +555,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           folderName: moveToUnassigned ? "" : backendFolder?.title,
         });
 
-        setBackendCourseMessage("璇剧▼淇℃伅宸插悓姝ュ埌鍚庣");
+        setBackendCourseMessage("课程信息已保存");
       } catch (error) {
-        alert(error.message || "鍚庣璇剧▼缂栬緫澶辫触");
+        alert(error.message || "课程编辑失败");
         return;
       }
     }
@@ -608,7 +607,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     ));
 
     if (selectedFolder === oldFolder?.title && oldFolder?.courses?.length === 1) {
-      setSelectedFolder("鍏ㄩ儴");
+      setSelectedFolder("全部");
     }
 
     setShowRenameModal(false);
@@ -730,9 +729,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           )
         );
 
-        setBackendCourseMessage("璇剧▼宸蹭粠鏁版嵁搴撳洖鏀剁珯鎭㈠");
+        setBackendCourseMessage("课程已从回收站恢复");
       } catch (error) {
-        alert(error.message || "鍚庣璇剧▼鎭㈠澶辫触");
+        alert(error.message || "课程恢复失败");
         return;
       }
     } else {
@@ -803,9 +802,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     if (targetCourse?.backendDeleted && targetCourse.backendId) {
       try {
         await permanentlyDeleteBackendCourse(targetCourse.backendId);
-        setBackendCourseMessage("璇剧▼宸蹭粠鏁版嵁搴撳洖鏀剁珯褰诲簳鍒犻櫎");
+        setBackendCourseMessage("课程已彻底删除");
       } catch (error) {
-        alert(error.message || "鍚庣璇剧▼褰诲簳鍒犻櫎澶辫触");
+        alert(error.message || "课程彻底删除失败");
         return;
       }
     }
@@ -845,7 +844,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         });
         setBackendCourseMessage("文件夹名称已保存");
       } catch (error) {
-        alert(error.message || "鍚庣鏂囦欢澶归噸鍛藉悕澶辫触");
+        alert(error.message || "文件夹重命名失败");
         return;
       }
     }
@@ -899,7 +898,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       ? String(folderToDelete.backendId)
       : null;
 
-    let nextBackendMessage = "鏂囦欢澶瑰凡鍒犻櫎";
+    let nextBackendMessage = "文件夹已删除";
 
     if (folderToDelete.backendSynced && backendFolderId) {
       try {
@@ -907,7 +906,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           deleteCourses: true,
         });
 
-        nextBackendMessage = "鏂囦欢澶瑰凡浠庝簯绔垹闄わ紝璇剧▼宸茶繘鍏ュ洖鏀剁珯";
+        nextBackendMessage = "文件夹已删除，课程已进入回收站";
       } catch (error) {
         console.warn("Folder cloud delete failed. Keep a local tombstone first.", error);
 
@@ -934,14 +933,14 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     );
 
     if (selectedFolder === folderToDelete.title) {
-      setSelectedFolder("鍏ㄩ儴");
+      setSelectedFolder("全部");
     }
 
     setBackendCourseMessage(nextBackendMessage);
     setPendingDeleteFolderId(null);
     setShowFolderDeleteConfirm(false);
   }
-  /* 鑷姩鎸佷箙鍖栦繚瀛?*/
+  /* 自动持久化保存 */
 
     useEffect(() => {
       writeUserStorageArray(user, "folders", folders);}, [folders, user]);
@@ -1178,9 +1177,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   });
 
   const currentUser = user || {
-    name: "椴歌鐢ㄦ埛",
-    role: "瀛︾敓",
-    account: "鏈湴浣撻獙璐﹀彿",
+    name: "NoteWhale 用户",
+    role: "学生",
+    account: "本地体验账号",
     authMode: "local-demo",
   };
 
@@ -1383,7 +1382,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                     : "rgba(255,255,255,0.45)",
                 }}
               >
-                娌℃湁鎵惧埌鐩稿叧璇剧▼
+                没有找到相关课程
               </div>
             ) : (
               visibleFoldersWithStats.map((folder) => (
@@ -1467,21 +1466,21 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           <input
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="璇疯緭鍏ユ枃浠跺す鍚嶇О"
+            placeholder="请输入文件夹名称"
             style={inputStyle}
           />
 
           <ModalActions
             onCancel={() => setShowFolderModal(false)}
             onConfirm={addFolder}
-            confirmText="鍒涘缓"
+            confirmText="创建"
             darkMode={darkMode}
           />
         </Modal>
       )}
 
       {showCourseModal && (
-        <Modal title="鏂板缓璇剧▼" darkMode={darkMode}>
+        <Modal title="新建课程" darkMode={darkMode}>
           <input
             value={newCourseName}
             onChange={(e) => setNewCourseName(e.target.value)}
@@ -1508,7 +1507,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           <ModalActions
             onCancel={() => setShowCourseModal(false)}
             onConfirm={addCourse}
-            confirmText="鍒涘缓"
+            confirmText="创建"
             darkMode={darkMode}
           />
         </Modal>
@@ -1604,7 +1603,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           <input
             value={renameFolderName}
             onChange={(e) => setRenameFolderName(e.target.value)}
-            placeholder="璇疯緭鍏ユ柊鐨勬枃浠跺す鍚嶇О"
+            placeholder="请输入新的文件夹名称"
             style={inputStyle}
             autoFocus
           />
@@ -1647,14 +1646,14 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       )}
 
       {showFolderDeleteConfirm && (
-        <Modal title="鍒犻櫎鏂囦欢澶癸紵" darkMode={darkMode}>
+        <Modal title="删除文件夹？" darkMode={darkMode}>
           <p
             style={{
               color: darkMode ? "#CBD5E1" : "#64748B",
               lineHeight: 1.8,
             }}
           >
-            鏂囦欢澶逛細鍒犻櫎锛涘叾涓绋嬩細杩涘叆鍥炴敹绔欍€傚悗绔悓姝ヨ绋嬩篃浼氳繘鍏ユ暟鎹簱鍥炴敹绔欍€?
+            文件夹会被删除，其中的课程会进入回收站。
           </p>
 
           <ModalActions
@@ -1663,7 +1662,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
               setShowFolderDeleteConfirm(false);
             }}
             onConfirm={confirmDeleteFolder}
-            confirmText="纭鍒犻櫎"
+            confirmText="确认删除"
             danger
             darkMode={darkMode}
           />
@@ -1701,9 +1700,9 @@ function mapBackendResourceForHome(resource) {
   return {
     id: `api-resource-${resource.id}`,
     backendId: resource.id,
-    title: resource.title || resource.filename || resource.name || "璇剧▼璧勬枡",
-    name: resource.filename || resource.title || resource.name || "璇剧▼璧勬枡",
-    filename: resource.filename || resource.title || resource.name || "璇剧▼璧勬枡",
+    title: resource.title || resource.filename || resource.name || "课程资料",
+    name: resource.filename || resource.title || resource.name || "课程资料",
+    filename: resource.filename || resource.title || resource.name || "课程资料",
     courseId: resource.courseId ? `api-${resource.courseId}` : null,
     backendCourseId: resource.courseId || null,
     courseName: resource.courseName || "",
