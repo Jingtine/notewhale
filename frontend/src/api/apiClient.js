@@ -70,6 +70,31 @@ export async function getResolvedApiBaseUrl() {
   return getApiBaseUrl();
 }
 
+function getDesktopBridge() {
+  return typeof window !== "undefined" ? window.notewhaleDesktop : null;
+}
+
+async function requestLocalApi(path, config) {
+  const bridge = getDesktopBridge();
+
+  if (typeof bridge?.localRequest !== "function") {
+    return null;
+  }
+
+  const result = await bridge.localRequest({
+    path,
+    method: config.method || "GET",
+    headers: config.headers || {},
+    body: config.body || null,
+  });
+
+  if (!result?.handled) {
+    return null;
+  }
+
+  return result;
+}
+
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY) || "";
 }
@@ -102,8 +127,6 @@ export function getSavedUser() {
 }
 
 export async function request(path, options = {}) {
-  const apiBaseUrl = await getResolvedApiBaseUrl();
-  const url = `${apiBaseUrl}${path}`;
   const isFormData = options.body instanceof FormData;
   const token = getAuthToken();
 
@@ -119,6 +142,35 @@ export async function request(path, options = {}) {
   if (config.body && !isFormData && typeof config.body !== "string") {
     config.body = JSON.stringify(config.body);
   }
+
+  if (!isFormData) {
+    const localResult = await requestLocalApi(path, {
+      ...config,
+      body:
+        typeof config.body === "string"
+          ? JSON.parse(config.body || "null")
+          : config.body,
+    });
+
+    if (localResult) {
+      if (localResult.status === 401) {
+        clearAuthSession();
+      }
+
+      if (localResult.status < 200 || localResult.status >= 300) {
+        const message =
+          localResult.data?.detail ||
+          localResult.data?.message ||
+          `请求失败：${localResult.status}`;
+        throw new Error(message);
+      }
+
+      return localResult.data;
+    }
+  }
+
+  const apiBaseUrl = await getResolvedApiBaseUrl();
+  const url = `${apiBaseUrl}${path}`;
 
   const response = await fetch(url, config);
 

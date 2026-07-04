@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
+const { closeLocalStore, handleLocalApiRequest, initLocalStore } = require("./localStore.cjs");
 
 let mainWindow = null;
 let backendProcess = null;
@@ -768,11 +769,26 @@ ipcMain.handle("desktop:open-data-dir", async () => {
   };
 });
 
+ipcMain.handle("local-api:request", async (_event, request) => {
+  return handleLocalApiRequest(request);
+});
+
 app.whenReady().then(async () => {
+  initLocalStore(app.getPath("userData"));
   createMainWindow();
-  loadStartupScreen();
-  await startLocalBackend();
   loadApplication();
+  startLocalBackend().catch((error) => {
+    const desktopPaths = getDesktopBackendPaths();
+    const logPath = path.join(desktopPaths.dataDir, "backend.log");
+    appendBackendLog(logPath, `background backend startup error: ${error.stack || error.message || error}`);
+    updateBackendStatus({
+      state: "stopped",
+      managed: true,
+      url: getBackendUrl(),
+      dataDir: desktopPaths.dataDir,
+      message: `后台后端启动失败：${error.message || error}。基础离线功能仍可使用。`,
+    });
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -784,6 +800,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   stopLocalBackend();
+  closeLocalStore();
 });
 
 app.on("window-all-closed", () => {

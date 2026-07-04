@@ -1,4 +1,4 @@
-import {useState,useEffect} from "react";
+﻿import {useState,useEffect} from "react";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
@@ -27,7 +27,7 @@ import {
 } from "../api/ddlApi";
 import { getAiStatus, getNotes as getBackendNotes } from "../api/noteApi";
 import { getResources as getBackendResources } from "../api/resourceApi";
-import { getApiBaseUrl } from "../api/apiClient";
+import { getResolvedApiBaseUrl } from "../api/apiClient";
 import {
   readStorageBoolean,
   readUserStorageArray,
@@ -67,7 +67,7 @@ function getGreetingText(date = new Date()) {
 }
 
 function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
-  const [selectedFolder, setSelectedFolder] = useState("全部");
+  const [selectedFolder, setSelectedFolder] = useState("鍏ㄩ儴");
   const [searchText, setSearchText] = useState("");
   const [darkMode, setDarkMode] = useState(() =>
     readStorageBoolean("darkMode", false)
@@ -110,11 +110,11 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   const [apiStatus, setApiStatus] = useState({
     checking: true,
     online: false,
-    message: "正在检测后端连接",
+    message: "正在检测本地服务",
   });
 
-  const [backendCourseMessage, setBackendCourseMessage] = useState("等待同步课程");
-  const [backendDdlMessage, setBackendDdlMessage] = useState("等待同步 DDL");
+  const [backendCourseMessage, setBackendCourseMessage] = useState("课程数据已准备");
+  const [backendDdlMessage, setBackendDdlMessage] = useState("DDL 数据已准备");
   const [aiStatus, setAiStatus] = useState(null);
   const [aiModelSettings, setAiModelSettingsState] = useState(() =>
     readAiModelSettings()
@@ -177,12 +177,12 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
         setFolders((prevFolders) => [...prevFolders, mappedFolder]);
         setSelectedFolder(mappedFolder.title);
-        setBackendCourseMessage("文件夹已同步到后端");
+        setBackendCourseMessage("文件夹已保存");
         setNewFolderName("");
         setShowFolderModal(false);
         return;
       } catch (error) {
-        alert(error.message || "后端文件夹创建失败，已切换为本地保存");
+        alert(error.message || "鍚庣鏂囦欢澶瑰垱寤哄け璐ワ紝宸插垏鎹负鏈湴淇濆瓨");
       }
     }
 
@@ -235,13 +235,13 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           setFolders((prevFolders) =>
             addCourseToUnassignedFolder(prevFolders, mappedCourse)
           );
-          setBackendCourseMessage("未归属课程已同步到后端");
+          setBackendCourseMessage("课程已保存");
           setNewCourseName("");
           setTargetFolderId("");
           setShowCourseModal(false);
           return;
         } catch (error) {
-          alert(error.message || "后端课程创建失败，已切换为本地保存");
+          alert(error.message || "课程创建失败，已切换为本地保存");
         }
       }
 
@@ -272,7 +272,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       try {
         let backendFolder = targetFolder;
 
-        // 本地旧文件夹还没有 backendId 时，先在后端创建对应文件夹。
+        // 鏈湴鏃ф枃浠跺す杩樻病鏈?backendId 鏃讹紝鍏堝湪鍚庣鍒涘缓瀵瑰簲鏂囦欢澶广€?
         if (!targetFolder.backendSynced || !targetFolder.backendId) {
           const savedFolder = await createBackendFolder({
             title: targetFolder.title,
@@ -309,13 +309,13 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           })
         );
 
-        setBackendCourseMessage("课程与所属文件夹已同步到后端");
+        setBackendCourseMessage("璇剧▼涓庢墍灞炴枃浠跺す宸插悓姝ュ埌鍚庣");
         setNewCourseName("");
         setTargetFolderId("");
         setShowCourseModal(false);
         return;
       } catch (error) {
-        alert(error.message || "后端课程创建失败，已切换为本地保存");
+        alert(error.message || "课程创建失败，已切换为本地保存");
       }
     }
 
@@ -349,7 +349,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   //   return Number.isNaN(date.getTime()) ? null : date;
   // }
 
-  /* DDL 时间解析 */
+  /* DDL 鏃堕棿瑙ｆ瀽 */
   function parseDDLDate(dateText) {
     if (!dateText) return null;
 
@@ -361,8 +361,8 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
   const now = new Date();
 
-/* 主页面板显示：
-   所有未完成DDL：包含未过期和已过期，方便右侧面板提示“逾期 X 天”。 */
+/* 涓婚〉闈㈡澘鏄剧ず锛?
+   鎵€鏈夋湭瀹屾垚DDL锛氬寘鍚湭杩囨湡鍜屽凡杩囨湡锛屾柟渚垮彸渚ч潰鏉挎彁绀衡€滈€炬湡 X 澶┾€濄€?*/
   const activeDdls = ddls
     .filter((ddl) => {
       const ddlDate = parseDDLDate(ddl.date);
@@ -370,8 +370,8 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     })
     .sort((a, b) => parseDDLDate(a.date) - parseDDLDate(b.date));
 
-/* 小铃铛提醒：
-   仅近7天DDL */
+/* 灏忛搩閾涙彁閱掞細
+   浠呰繎7澶〥DL */
   const upcomingDdls =
     activeDdls.filter(
       (ddl) => {
@@ -404,25 +404,25 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       courseName: selectedCourse ? selectedCourse.title : "未归属课程",
       courseId: selectedCourse ? selectedCourse.id : null,
       completed: false,
-      source: newDDLPreview ? "图片识别" : "手动新建",
+      source: newDDLPreview ? "鍥剧墖璇嗗埆" : "鎵嬪姩鏂板缓",
     };
 
     if (apiStatus.online) {
       try {
         const savedDdl = await createBackendDdl({
           ...baseDDL,
-          // 后端只接收数据库课程 id；本地课程不强行写入 courseId，避免和后端课程 id 冲突。
+          // 鍚庣鍙帴鏀舵暟鎹簱璇剧▼ id锛涙湰鍦拌绋嬩笉寮鸿鍐欏叆 courseId锛岄伩鍏嶅拰鍚庣璇剧▼ id 鍐茬獊銆?
           courseId: selectedCourse?.backendSynced ? selectedCourse.backendId : null,
           courseName: baseDDL.courseName,
         });
 
         const nextDdls = [mapBackendDdl(savedDdl), ...ddls];
         setDdls(nextDdls);
-        setBackendDdlMessage(`已同步 ${nextDdls.filter((ddl) => ddl.backendSynced).length} 条 DDL`);
+        setBackendDdlMessage(`宸插悓姝?${nextDdls.filter((ddl) => ddl.backendSynced).length} 鏉?DDL`);
         resetDDLModal();
         return;
       } catch (error) {
-        alert(error.message || "后端 DDL 创建失败，已切换为本地保存");
+        alert(error.message || "DDL 创建失败，已切换为本地保存");
       }
     }
 
@@ -465,7 +465,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       setNewDDLPlatform(result.platform || "");
       setNewDDLNote(result.note || "");
     } catch (error) {
-      alert(error.message || "视觉模型识别失败，请检查智能体配置");
+      alert(error.message || "瑙嗚妯″瀷璇嗗埆澶辫触锛岃妫€鏌ユ櫤鑳戒綋閰嶇疆");
     } finally {
       event.target.value = "";
     }
@@ -504,7 +504,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           starred: nextStarred,
         });
       } catch {
-        setBackendCourseMessage("收藏状态暂未同步到后端");
+        setBackendCourseMessage("鏀惰棌鐘舵€佹殏鏈悓姝ュ埌鍚庣");
       }
     }
   }
@@ -556,9 +556,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           folderName: moveToUnassigned ? "" : backendFolder?.title,
         });
 
-        setBackendCourseMessage("课程信息已同步到后端");
+        setBackendCourseMessage("璇剧▼淇℃伅宸插悓姝ュ埌鍚庣");
       } catch (error) {
-        alert(error.message || "后端课程编辑失败");
+        alert(error.message || "鍚庣璇剧▼缂栬緫澶辫触");
         return;
       }
     }
@@ -608,7 +608,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     ));
 
     if (selectedFolder === oldFolder?.title && oldFolder?.courses?.length === 1) {
-      setSelectedFolder("全部");
+      setSelectedFolder("鍏ㄩ儴");
     }
 
     setShowRenameModal(false);
@@ -662,9 +662,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     if (deletedCourse.backendSynced && deletedCourse.backendId) {
       try {
         await deleteBackendCourse(deletedCourse.backendId);
-        setBackendCourseMessage("课程已进入数据库回收站");
+        setBackendCourseMessage("课程已移入回收站");
       } catch (error) {
-        alert(error.message || "后端课程移入回收站失败");
+        alert(error.message || "课程移入回收站失败");
         return;
       }
     }
@@ -730,9 +730,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           )
         );
 
-        setBackendCourseMessage("课程已从数据库回收站恢复");
+        setBackendCourseMessage("璇剧▼宸蹭粠鏁版嵁搴撳洖鏀剁珯鎭㈠");
       } catch (error) {
-        alert(error.message || "后端课程恢复失败");
+        alert(error.message || "鍚庣璇剧▼鎭㈠澶辫触");
         return;
       }
     } else {
@@ -803,9 +803,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     if (targetCourse?.backendDeleted && targetCourse.backendId) {
       try {
         await permanentlyDeleteBackendCourse(targetCourse.backendId);
-        setBackendCourseMessage("课程已从数据库回收站彻底删除");
+        setBackendCourseMessage("璇剧▼宸蹭粠鏁版嵁搴撳洖鏀剁珯褰诲簳鍒犻櫎");
       } catch (error) {
-        alert(error.message || "后端课程彻底删除失败");
+        alert(error.message || "鍚庣璇剧▼褰诲簳鍒犻櫎澶辫触");
         return;
       }
     }
@@ -843,9 +843,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         await updateBackendFolder(folderToRename.backendId, {
           title: nextTitle,
         });
-        setBackendCourseMessage("文件夹名称已同步到后端");
+        setBackendCourseMessage("文件夹名称已保存");
       } catch (error) {
-        alert(error.message || "后端文件夹重命名失败");
+        alert(error.message || "鍚庣鏂囦欢澶归噸鍛藉悕澶辫触");
         return;
       }
     }
@@ -899,7 +899,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       ? String(folderToDelete.backendId)
       : null;
 
-    let nextBackendMessage = "文件夹已删除";
+    let nextBackendMessage = "鏂囦欢澶瑰凡鍒犻櫎";
 
     if (folderToDelete.backendSynced && backendFolderId) {
       try {
@@ -907,7 +907,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           deleteCourses: true,
         });
 
-        nextBackendMessage = "文件夹已从云端删除，课程已进入回收站";
+        nextBackendMessage = "鏂囦欢澶瑰凡浠庝簯绔垹闄わ紝璇剧▼宸茶繘鍏ュ洖鏀剁珯";
       } catch (error) {
         console.warn("Folder cloud delete failed. Keep a local tombstone first.", error);
 
@@ -918,7 +918,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         });
 
         nextBackendMessage =
-          "云端删除暂未同步，已先从当前页面移除。刷新后不会在本机恢复。";
+          "删除暂未同步，已先从当前页面移除。";
       }
     }
 
@@ -934,14 +934,14 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
     );
 
     if (selectedFolder === folderToDelete.title) {
-      setSelectedFolder("全部");
+      setSelectedFolder("鍏ㄩ儴");
     }
 
     setBackendCourseMessage(nextBackendMessage);
     setPendingDeleteFolderId(null);
     setShowFolderDeleteConfirm(false);
   }
-  /* 自动持久化保存 */
+  /* 鑷姩鎸佷箙鍖栦繚瀛?*/
 
     useEffect(() => {
       writeUserStorageArray(user, "folders", folders);}, [folders, user]);
@@ -982,25 +982,21 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
     async function checkBackend() {
       try {
-        const response = await fetch(`${getApiBaseUrl()}/health`, {
+        const apiBaseUrl = await getResolvedApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/health`, {
           cache: "no-store",
         });
 
         if (!alive) return;
 
-        if (response.ok) {
-          setApiStatus({
-            checking: false,
-            online: true,
-            message: "后端连接正常",
-          });
-        } else {
-          setApiStatus({
-            checking: false,
-            online: false,
-            message: "后端暂不可用，当前使用本地模式",
-          });
-        }
+        setApiStatus({
+          checking: false,
+          online: response.ok,
+          message: response.ok
+            ? "本地数据服务正常"
+            : "后端暂不可用，当前使用本地模式",
+          apiBaseUrl,
+        });
       } catch {
         if (!alive) return;
 
@@ -1034,15 +1030,15 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
 
         if (snapshot.folderCount > 0) {
           setBackendCourseMessage(
-            `已同步 ${snapshot.folderCount} 个文件夹，${snapshot.courseCount} 门课程`
+            `已保存 ${snapshot.folderCount} 个文件夹，${snapshot.courseCount} 门课程`
           );
         } else {
-          setBackendCourseMessage("当前账号暂无文件夹，可新建文件夹同步到数据库");
+          setBackendCourseMessage("当前账号暂无文件夹，可新建文件夹");
         }
       } catch {
         if (!alive) return;
 
-        setBackendCourseMessage("后端文件夹暂不可用，继续使用本地课程");
+        setBackendCourseMessage("继续使用本地课程数据");
       }
     }
 
@@ -1075,7 +1071,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           return [...localTrashCourses, ...backendTrashCourses];
         });
       } catch {
-        // 后端回收站不可用时继续使用本地回收站。
+        // 本地回收站可继续使用。
       }
     }
 
@@ -1099,13 +1095,13 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
         setDdls(nextBackendDdls);
 
         if (nextBackendDdls.length > 0) {
-          setBackendDdlMessage(`已同步 ${nextBackendDdls.length} 条 DDL`);
+          setBackendDdlMessage(`已保存 ${nextBackendDdls.length} 条 DDL`);
         } else {
-          setBackendDdlMessage("当前账号暂无 DDL，可新建日程同步到数据库");
+          setBackendDdlMessage("当前账号暂无 DDL，可新建日程");
         }
       } catch {
         if (!alive) return;
-        setBackendDdlMessage("后端 DDL 暂不可用，继续使用本地 DDL");
+        setBackendDdlMessage("继续使用本地 DDL");
       }
     }
 
@@ -1182,9 +1178,9 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
   });
 
   const currentUser = user || {
-    name: "鲸记用户",
-    role: "学生",
-    account: "本地体验账号",
+    name: "椴歌鐢ㄦ埛",
+    role: "瀛︾敓",
+    account: "鏈湴浣撻獙璐﹀彿",
     authMode: "local-demo",
   };
 
@@ -1309,7 +1305,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                       fontSize: "20px",
                     }}
                   >
-                    ✦
+                    N
                   </span>
                 </div>
 
@@ -1324,7 +1320,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                       letterSpacing: "-0.03em",
                     }}
                   >
-                    {greetingText}，{currentUser.name || "鲸记用户"}
+                    {greetingText}，{currentUser.name || "NoteWhale 用户"}
                   </h1>
 
                   <p
@@ -1364,7 +1360,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                       fontFamily: "inherit",
                     }}
                   >
-                    {apiStatus.online ? "● 后端在线" : "○ 本地模式"}
+                    {apiStatus.online ? "● 后端在线" : "● 本地模式"}
                   </button>
                 </div>
               </div>
@@ -1387,7 +1383,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
                     : "rgba(255,255,255,0.45)",
                 }}
               >
-                没有找到相关课程
+                娌℃湁鎵惧埌鐩稿叧璇剧▼
               </div>
             ) : (
               visibleFoldersWithStats.map((folder) => (
@@ -1471,21 +1467,21 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           <input
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="请输入文件夹名称"
+            placeholder="璇疯緭鍏ユ枃浠跺す鍚嶇О"
             style={inputStyle}
           />
 
           <ModalActions
             onCancel={() => setShowFolderModal(false)}
             onConfirm={addFolder}
-            confirmText="创建"
+            confirmText="鍒涘缓"
             darkMode={darkMode}
           />
         </Modal>
       )}
 
       {showCourseModal && (
-        <Modal title="新建课程" darkMode={darkMode}>
+        <Modal title="鏂板缓璇剧▼" darkMode={darkMode}>
           <input
             value={newCourseName}
             onChange={(e) => setNewCourseName(e.target.value)}
@@ -1512,7 +1508,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
           <ModalActions
             onCancel={() => setShowCourseModal(false)}
             onConfirm={addCourse}
-            confirmText="创建"
+            confirmText="鍒涘缓"
             darkMode={darkMode}
           />
         </Modal>
@@ -1604,11 +1600,11 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       )}
 
       {showFolderRenameModal && (
-        <Modal title="重命名文件夹" darkMode={darkMode}>
+        <Modal title="閲嶅懡鍚嶆枃浠跺す" darkMode={darkMode}>
           <input
             value={renameFolderName}
             onChange={(e) => setRenameFolderName(e.target.value)}
-            placeholder="请输入新的文件夹名称"
+            placeholder="璇疯緭鍏ユ柊鐨勬枃浠跺す鍚嶇О"
             style={inputStyle}
             autoFocus
           />
@@ -1620,21 +1616,21 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
               setRenameFolderName("");
             }}
             onConfirm={confirmRenameFolder}
-            confirmText="保存修改"
+            confirmText="淇濆瓨淇敼"
             darkMode={darkMode}
           />
         </Modal>
       )}
 
       {showDeleteConfirm && (
-        <Modal title="移动到回收站？" darkMode={darkMode}>
+        <Modal title="移入回收站？" darkMode={darkMode}>
           <p
             style={{
               color: darkMode ? "#CBD5E1" : "#64748B",
               lineHeight: 1.8,
             }}
           >
-            本地课程会移动到回收站；后端同步课程会进入数据库回收站，可恢复或彻底删除。
+            课程会移入回收站，可以恢复或彻底删除。
           </p>
 
           <ModalActions
@@ -1643,7 +1639,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
               setShowDeleteConfirm(false);
             }}
             onConfirm={confirmDeleteCourse}
-            confirmText="确认移动"
+            confirmText="纭绉诲姩"
             danger
             darkMode={darkMode}
           />
@@ -1651,14 +1647,14 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
       )}
 
       {showFolderDeleteConfirm && (
-        <Modal title="删除文件夹？" darkMode={darkMode}>
+        <Modal title="鍒犻櫎鏂囦欢澶癸紵" darkMode={darkMode}>
           <p
             style={{
               color: darkMode ? "#CBD5E1" : "#64748B",
               lineHeight: 1.8,
             }}
           >
-            文件夹会删除；其中课程会进入回收站。后端同步课程也会进入数据库回收站。
+            鏂囦欢澶逛細鍒犻櫎锛涘叾涓绋嬩細杩涘叆鍥炴敹绔欍€傚悗绔悓姝ヨ绋嬩篃浼氳繘鍏ユ暟鎹簱鍥炴敹绔欍€?
           </p>
 
           <ModalActions
@@ -1667,7 +1663,7 @@ function HomePage({ user = null, onLogout, onUserUpdated } = {}) {
               setShowFolderDeleteConfirm(false);
             }}
             onConfirm={confirmDeleteFolder}
-            confirmText="确认删除"
+            confirmText="纭鍒犻櫎"
             danger
             darkMode={darkMode}
           />
@@ -1691,7 +1687,8 @@ function toDatetimeLocalValue(value) {
   const normalized = text
     .replace(/\//g, "-")
     .replace(" ", "T")
-    .replace("：", ":");
+    .replace("：", ":")
+    .replace("，", ":");
 
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
     return normalized.slice(0, 16);
@@ -1704,9 +1701,9 @@ function mapBackendResourceForHome(resource) {
   return {
     id: `api-resource-${resource.id}`,
     backendId: resource.id,
-    title: resource.title || resource.filename || resource.name || "课程资料",
-    name: resource.filename || resource.title || resource.name || "课程资料",
-    filename: resource.filename || resource.title || resource.name || "课程资料",
+    title: resource.title || resource.filename || resource.name || "璇剧▼璧勬枡",
+    name: resource.filename || resource.title || resource.name || "璇剧▼璧勬枡",
+    filename: resource.filename || resource.title || resource.name || "璇剧▼璧勬枡",
     courseId: resource.courseId ? `api-${resource.courseId}` : null,
     backendCourseId: resource.courseId || null,
     courseName: resource.courseName || "",
@@ -1792,7 +1789,7 @@ function ModalActions({
           cursor: "pointer",
         }}
       >
-        取消
+        鍙栨秷
       </button>
 
       <button
@@ -1904,7 +1901,7 @@ function ScheduleModal({
             {preview ? (
               <img
                 src={preview}
-                alt="DDL截图预览"
+                alt="DDL 截图预览"
                 style={{
                   width: "100%",
                   maxHeight: "220px",
@@ -1961,7 +1958,7 @@ function ScheduleModal({
                 lineHeight: 1.6,
               }}
             >
-              支持截图、照片等格式；
+              支持截图、照片等格式
               <br />
               不上传也可以手动填写
             </p>
@@ -2099,3 +2096,4 @@ function scheduleInputStyle(darkMode) {
 
 
 export default HomePage;
+

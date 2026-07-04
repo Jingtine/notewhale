@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("notewhaleDesktop", {
   openDataDirectory() {
     return ipcRenderer.invoke("desktop:open-data-dir");
   },
+  localRequest(request) {
+    return ipcRenderer.invoke("local-api:request", request);
+  },
   importNjuSchedule(config) {
     return ipcRenderer.invoke("nju-schedule:import", config);
   },
